@@ -397,6 +397,7 @@ async function submitOrder(form, side) {
       orderNo: orderId,
       fundAccountNo: account.accountNo,
       securityAccountNo: account.securityAccountNo || account.accountNo,
+      userName: account.name || "投资者",
       stockCode: input.stockCode,
       direction: side === "buy" ? "BUY" : "SELL",
       price: input.orderPrice,
@@ -811,6 +812,48 @@ async function markNotificationRead(notificationId) {
   renderNotifications();
 }
 
+function parseAmount(rawValue) {
+  const raw = String(rawValue || "").trim();
+  if (!/^\d+(\.\d{1,2})?$/.test(raw) || Number(raw) <= 0) return null;
+  return Number(raw);
+}
+
+function updateDisplayedBalance(result, fallbackDelta) {
+  const account = currentAccount();
+  const returnedBalance = Number(result.data?.available_balance);
+  account.availableCash = Number.isFinite(returnedBalance)
+    ? returnedBalance
+    : account.availableCash + fallbackDelta;
+  saveState();
+  renderAccount();
+}
+
+async function depositFunds(form) {
+  if (!validateSession()) return;
+  const message = form.querySelector(".form-message");
+  const amount = parseAmount(form.amount.value);
+  if (!amount) return setMessage(message, "请输入大于 0、最多两位小数的存款金额", "error");
+  const result = await depositViaAccountSystem(currentAccount().accountNo, amount);
+  if (!result.ok) return setMessage(message, result.message || "账户系统存款失败", "error");
+  form.reset();
+  updateDisplayedBalance(result, amount);
+  setMessage(message, "存款成功，余额已与账户系统同步", "ok");
+}
+
+async function withdrawFunds(form) {
+  if (!validateSession()) return;
+  const message = form.querySelector(".form-message");
+  const amount = parseAmount(form.amount.value);
+  const withdrawPassword = form.withdrawPassword.value.trim();
+  if (!amount) return setMessage(message, "请输入大于 0、最多两位小数的取款金额", "error");
+  if (!/^\d{6}$/.test(withdrawPassword)) return setMessage(message, "取款密码必须为 6 位数字", "error");
+  const result = await withdrawViaAccountSystem(currentAccount().accountNo, amount, withdrawPassword);
+  if (!result.ok) return setMessage(message, result.message || "账户系统取款失败", "error");
+  form.reset();
+  updateDisplayedBalance(result, -amount);
+  setMessage(message, "取款成功，余额已与账户系统同步", "ok");
+}
+
 async function deleteAlert(alertId) {
   const alert = state.alerts.find((item) => item.id === alertId);
   if (alert) {
@@ -831,6 +874,7 @@ async function changePassword(form) {
   const newPassword = form.newPassword.value.trim();
   const confirmPassword = form.confirmPassword.value.trim();
   const key = type === "trade" ? "tradePassword" : "withdrawPassword";
+  if (API_CONFIG.accountBaseUrl) account[key] = oldPassword;
   if (oldPassword !== account[key]) return setMessage(message, "原密码错误，请重新输入", "error");
   if (!/^\d{6}$/.test(newPassword) || /^(\d)\1{5}$/.test(newPassword)) return setMessage(message, "密码格式不符合要求", "error");
   if (newPassword === oldPassword) return setMessage(message, "新密码不能与原密码相同", "error");

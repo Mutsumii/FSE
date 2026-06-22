@@ -31,6 +31,12 @@ public final class OperationLogDao extends BaseJdbcDao {
     }
 
     public long create(Connection connection, OperationLog log) {
+        // Investor-initiated actions have no staff operator. Their financial
+        // transaction is still recorded in fund_transaction_log; staff-only
+        // operation_log entries require a non-null staff_id by schema design.
+        if (log.staffId() == null) {
+            return 0L;
+        }
         String sql = """
                 insert into operation_log (
                     staff_id, operation_type, target_type, target_id, detail, operation_time

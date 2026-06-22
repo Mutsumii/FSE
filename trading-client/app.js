@@ -120,6 +120,16 @@ dom.passwordForm.addEventListener("submit", async (event) => {
   await changePassword(dom.passwordForm);
 });
 
+dom.depositForm.addEventListener("submit", async (event) => {
+  event.preventDefault();
+  await depositFunds(dom.depositForm);
+});
+
+dom.withdrawForm.addEventListener("submit", async (event) => {
+  event.preventDefault();
+  await withdrawFunds(dom.withdrawForm);
+});
+
 setInterval(() => {
   dom.clockText.textContent = nowText();
 }, 1000);

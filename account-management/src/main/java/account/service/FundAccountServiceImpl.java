@@ -9,7 +9,9 @@ import account.dto.AccountBindingResponse;
 import account.dto.AccountStatusResponse;
 import account.dto.ChangeFundPasswordRequest;
 import account.dto.ClientChangeFundPasswordRequest;
+import account.dto.ClientDepositRequest;
 import account.dto.ClientLoginAuthResponse;
+import account.dto.ClientWithdrawRequest;
 import account.dto.CloseFundAccountRequest;
 import account.dto.CompleteLoginCertificateRequest;
 import account.dto.CreateFundAccountRequest;
@@ -549,6 +551,25 @@ public class FundAccountServiceImpl implements FundAccountService {
                 null,
                 false
         );
+    }
+
+    @Override
+    public FundBalanceChangeResponse clientDeposit(ClientDepositRequest request) {
+        clientAuthTokenService.requireFundAccess(request.getAuthToken(), request.getFundAccNo());
+        DepositRequest delegate = new DepositRequest();
+        delegate.setFundAccNo(request.getFundAccNo());
+        delegate.setAmount(request.getAmount());
+        return deposit(delegate);
+    }
+
+    @Override
+    public FundBalanceChangeResponse clientWithdraw(ClientWithdrawRequest request) {
+        clientAuthTokenService.requireFundAccess(request.getAuthToken(), request.getFundAccNo());
+        WithdrawRequest delegate = new WithdrawRequest();
+        delegate.setFundAccNo(request.getFundAccNo());
+        delegate.setAmount(request.getAmount());
+        delegate.setWithdrawPassword(request.getWithdrawPassword());
+        return withdraw(delegate);
     }
 
     @Override

@@ -74,7 +74,7 @@
           </div>
           <nav class="nav-list" aria-label="主导航">
             <button class="nav-item active" data-view="dashboard">
-              账户资产
+              我的账户
             </button>
             <button class="nav-item" data-view="market">行情查询</button>
             <button class="nav-item" data-view="trade">委托交易</button>
@@ -89,7 +89,7 @@
           <header class="topbar">
             <div>
               <p class="eyebrow">投资者工作台</p>
-              <h2 id="viewTitle">账户资产</h2>
+              <h2 id="viewTitle">我的账户</h2>
             </div>
             <div class="top-actions">
               <span id="clockText"></span>
@@ -118,6 +118,21 @@
                 <span>账户状态</span>
                 <strong id="accountStatus">--</strong>
               </article>
+            </div>
+            <div class="account-action-grid">
+              <form id="depositForm" class="panel account-action-form">
+                <div class="panel-header"><h3>存款</h3><span>资金由账户系统统一记账</span></div>
+                <label><span>存款金额</span><input name="amount" inputmode="decimal" placeholder="例如 1000.00" required /></label>
+                <button class="primary-btn" type="submit">确认存款</button>
+                <p class="form-message"></p>
+              </form>
+              <form id="withdrawForm" class="panel account-action-form">
+                <div class="panel-header"><h3>取款</h3><span>需要验证取款密码</span></div>
+                <label><span>取款金额</span><input name="amount" inputmode="decimal" placeholder="例如 500.00" required /></label>
+                <label><span>取款密码</span><input name="withdrawPassword" type="password" inputmode="numeric" maxlength="6" required /></label>
+                <button class="primary-btn" type="submit">确认取款</button>
+                <p class="form-message"></p>
+              </form>
             </div>
             <div class="panel">
               <div class="panel-header">

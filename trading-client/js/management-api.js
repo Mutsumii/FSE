@@ -40,6 +40,7 @@ function buildManagementReviewRequest(orderPayload) {
     accountId: orderPayload.fundAccountNo,
     fundAccountNo: orderPayload.fundAccountNo,
     securityAccountNo: orderPayload.securityAccountNo,
+    userName: orderPayload.userName,
     stockCode: orderPayload.stockCode,
     side: orderPayload.direction,
     price: Number(orderPayload.price),

@@ -188,6 +188,20 @@ async function changePasswordViaAccountSystem(
   );
 }
 
+async function depositViaAccountSystem(accountNo, amount) {
+  return requestJson(API_CONFIG.accountBaseUrl || "", API_CONFIG.endpoints.deposit, {
+    method: "POST",
+    body: { fund_acc_no: accountNo, auth_token: currentAccount()?.authToken, amount },
+  });
+}
+
+async function withdrawViaAccountSystem(accountNo, amount, withdrawPassword) {
+  return requestJson(API_CONFIG.accountBaseUrl || "", API_CONFIG.endpoints.withdraw, {
+    method: "POST",
+    body: { fund_acc_no: accountNo, auth_token: currentAccount()?.authToken, amount, withdraw_password: withdrawPassword },
+  });
+}
+
 // 当前版本冻结/释放已移交中央交易系统，保留空函数供 business.js 本地流程使用
 async function freezeFunds(accountNo, amount, orderRef) {
   return { ok: true };

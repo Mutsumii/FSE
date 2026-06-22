@@ -35,4 +35,6 @@ const dom = {
   notificationRows: document.querySelector("#notificationRows"),
   notificationSummary: document.querySelector("#notificationSummary"),
   passwordForm: document.querySelector("#passwordForm"),
+  depositForm: document.querySelector("#depositForm"),
+  withdrawForm: document.querySelector("#withdrawForm"),
 };

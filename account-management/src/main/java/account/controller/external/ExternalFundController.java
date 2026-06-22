@@ -3,7 +3,9 @@ package account.controller.external;
 import account.common.Result;
 import account.common.ResultPayloadMapper;
 import account.dto.ClientChangeFundPasswordRequest;
+import account.dto.ClientDepositRequest;
 import account.dto.ClientLoginAuthRequest;
+import account.dto.ClientWithdrawRequest;
 import account.dto.CompleteLoginCertificateRequest;
 import account.service.api.FundAccountService;
 import com.fasterxml.jackson.databind.ObjectMapper;
@@ -52,6 +54,16 @@ public class ExternalFundController {
             @RequestParam("auth_token") @NotBlank String authToken) {
         log.info("[getFundSnapshot] fund_acc_no={}", fundAccNo);
         return ResultPayloadMapper.flatten(objectMapper, fundAccountService.getFundSnapshot(fundAccNo, authToken), "查询成功");
+    }
+
+    @PostMapping("/deposit")
+    public Result<Void> clientDeposit(@Valid @RequestBody ClientDepositRequest request) {
+        return ResultPayloadMapper.flatten(objectMapper, fundAccountService.clientDeposit(request), "deposit succeeded");
+    }
+
+    @PostMapping("/withdraw")
+    public Result<Void> clientWithdraw(@Valid @RequestBody ClientWithdrawRequest request) {
+        return ResultPayloadMapper.flatten(objectMapper, fundAccountService.clientWithdraw(request), "withdraw succeeded");
     }
 
     @PutMapping("/password")

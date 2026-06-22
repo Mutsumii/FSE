@@ -4,7 +4,9 @@ import account.dto.ChangeFundPasswordRequest;
 import account.dto.AccountBindingResponse;
 import account.dto.AccountStatusResponse;
 import account.dto.ClientChangeFundPasswordRequest;
+import account.dto.ClientDepositRequest;
 import account.dto.ClientLoginAuthResponse;
+import account.dto.ClientWithdrawRequest;
 import account.dto.CompleteLoginCertificateRequest;
 import account.dto.CloseFundAccountRequest;
 import account.dto.CreateFundAccountRequest;
@@ -50,6 +52,10 @@ public interface FundAccountService {
     FundSnapshotResponse getFundSnapshot(String fundAccNo, String authToken);
 
     void clientChangeFundPassword(ClientChangeFundPasswordRequest request);
+
+    FundBalanceChangeResponse clientDeposit(ClientDepositRequest request);
+
+    FundBalanceChangeResponse clientWithdraw(ClientWithdrawRequest request);
 
     FundTradeUpdateResponse updateFundBalance(UpdateFundBalanceRequest request);
 
