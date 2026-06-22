@@ -1,1 +1,0 @@
-{"code":200,"message":"success","data":{"stockCode":"600519","stockName":"贵州茅台","lastPrice":1657.52,"yesterdayClose":1660.00,"changeRate":"-0.15%","status":0,"topBuyer":{"account":"B_600519","qty":579156517},"topSeller":{"account":"S_600519","qty":579156517},"bidPrice":1657.51,"askPrice":1657.53,"bidVolume":48904,"askVolume":19437}}
