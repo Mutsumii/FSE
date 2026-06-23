@@ -15,7 +15,7 @@
     <div id="adminIdentity" class="admin-identity hidden">
         <span>当前管理员</span>
         <strong id="currentAdminName"></strong>
-        <button class="ghost" type="button" onclick="window.location.href='http://localhost:3000/'">返回导航</button>
+        <button id="helpBtn" class="ghost">帮助</button>
         <button id="changePasswordBtn" class="ghost">修改密码</button>
         <button id="deleteAccountBtn" class="ghost danger">注销账号</button>
         <button id="logoutBtn" class="ghost">退出</button>
@@ -23,35 +23,24 @@
 </header>
 
 <main>
-    <section id="loginView" class="login-shell">
-        <div class="login-card">
-            <button class="nav-back-button" type="button" onclick="window.location.href='http://localhost:3000/'">← 返回导航</button>
-            <div class="login-hero">
-                <p class="eyebrow">Stock Trading System</p>
-                <h1>交易管理系统</h1>
-                <p>面向交易管理人员的后台入口，支持登录、注册、人工核验、黑名单与股票管理。</p>
-            </div>
-            <div class="login-panel">
-                <div class="auth-tabs">
-                    <button id="showLoginBtn" class="tab active" type="button">登录</button>
-                    <button id="showRegisterBtn" class="tab" type="button">注册</button>
-                </div>
-                <h1 id="authTitle">管理员登录</h1>
-                <label>用户名
-                    <input id="username" value="admin" autocomplete="username">
-                </label>
-                <label>密码
-                    <input id="password" value="admin123" type="password" autocomplete="current-password">
-                </label>
-                <label id="confirmPasswordLabel" class="hidden">确认密码
-                    <input id="confirmPassword" type="password" autocomplete="new-password">
-                </label>
-                <button id="loginBtn">登录</button>
-                <button id="registerBtn" class="hidden">注册并进入</button>
-                <p class="message muted">默认管理员：<strong>admin</strong> / <strong>admin123</strong></p>
-                <p id="loginMessage" class="message"></p>
-            </div>
+    <section id="loginView" class="login-panel">
+        <div class="auth-tabs">
+            <button id="showLoginBtn" class="tab active" type="button">登录</button>
+            <button id="showRegisterBtn" class="tab" type="button">注册</button>
         </div>
+        <h1 id="authTitle">管理员登录</h1>
+        <label>用户名
+            <input id="username" value="admin" autocomplete="username">
+        </label>
+        <label>密码
+            <input id="password" value="admin123" type="password" autocomplete="current-password">
+        </label>
+        <label id="confirmPasswordLabel" class="hidden">确认密码
+            <input id="confirmPassword" type="password" autocomplete="new-password">
+        </label>
+        <button id="loginBtn">登录</button>
+        <button id="registerBtn" class="hidden">注册并进入</button>
+        <p id="loginMessage" class="message"></p>
     </section>
 
     <section id="dashboardView" class="dashboard hidden">
@@ -80,7 +69,7 @@
                     <button id="refreshBlacklistBtn" class="ghost">刷新</button>
                 </div>
                 <form id="blacklistForm" class="blacklist-form">
-                    <input id="blackIdCardNo" placeholder="证件号（主键）" required>
+                    <input id="blackIdCardNo" placeholder="身份证号（主键）" required>
                     <input id="blackUserName" placeholder="投资者姓名">
                     <input id="blackFundNo" placeholder="资金账户号">
                     <input id="blackSecurityNo" placeholder="证券账户号">
@@ -90,23 +79,13 @@
                 <div id="blacklistTable"></div>
             </section>
 
-            <section class="account-control-section">
-                <div class="section-header"><h2>账户冻结与解冻</h2></div>
-                <form id="accountControlForm" class="account-control-form">
-                    <select id="accountType"><option value="FUND">资金账户</option><option value="SECURITY">证券账户</option></select>
-                    <input id="controlAccountNo" placeholder="账户号" required>
-                    <select id="freezeType"><option value="VIOLATION">违规冻结</option><option value="LOSS">挂失冻结</option></select>
-                    <input id="freezeReason" placeholder="操作原因">
-                    <button type="button" id="freezeAccountBtn">冻结</button>
-                    <button type="button" id="unfreezeAccountBtn" class="ghost">解冻</button>
-                </form>
-            </section>
-
             <div id="stockDetail" class="stock-detail empty">请选择一只股票</div>
 
             <section id="auditSection" class="admin-section hidden">
-                <div class="section-header"><h2>审计日志</h2><button id="refreshAuditBtn" class="ghost">刷新</button></div>
-                <div id="auditTable"></div>
+                <details class="audit-details">
+                    <summary>审计日志</summary>
+                    <div id="auditTable"></div>
+                </details>
             </section>
         </section>
     </section>
@@ -114,26 +93,33 @@
 
 <dialog id="appDialog" class="app-dialog">
     <form id="appDialogForm" method="dialog">
-        <h3 id="dialogTitle">提示</h3>
+        <div class="dialog-head">
+            <strong>交易系统管理</strong>
+            <button id="dialogCloseBtn" type="button" class="dialog-close" aria-label="关闭">×</button>
+        </div>
         <p id="dialogMessage"></p>
-        <input id="dialogInput" class="hidden" type="password">
+        <p id="dialogWarning" class="dialog-warning hidden"></p>
+        <input id="dialogInput" class="hidden" autocomplete="off">
         <div class="dialog-actions">
-            <button type="button" id="dialogCancelBtn" class="ghost">取消</button>
-            <button type="submit" id="dialogCloseBtn">确定</button>
+            <button id="dialogCancelBtn" type="button" class="ghost hidden">取消</button>
+            <button id="dialogConfirmBtn" type="submit">确定</button>
         </div>
     </form>
 </dialog>
 
 <dialog id="passwordDialog" class="app-dialog">
-    <form id="passwordDialogForm" method="dialog">
-        <h3>修改密码</h3>
-        <label>当前密码<input id="currentPasswordInput" type="password" autocomplete="current-password"></label>
-        <label>新密码<input id="newPasswordInput" type="password" autocomplete="new-password"></label>
-        <label>确认新密码<input id="confirmNewPasswordInput" type="password" autocomplete="new-password"></label>
-        <p id="passwordDialogError" class="message hidden"></p>
+    <form id="passwordDialogForm">
+        <div class="dialog-head">
+            <strong>修改密码</strong>
+            <button id="passwordDialogCloseBtn" type="button" class="dialog-close" aria-label="关闭">×</button>
+        </div>
+        <label>当前密码<input id="currentPasswordInput" type="password" required autocomplete="current-password"></label>
+        <label>新密码<input id="newPasswordInput" type="password" minlength="6" required autocomplete="new-password"></label>
+        <label>确认新密码<input id="confirmNewPasswordInput" type="password" minlength="6" required autocomplete="new-password"></label>
+        <p id="passwordDialogError" class="dialog-warning hidden"></p>
         <div class="dialog-actions">
-            <button type="button" id="passwordDialogCancelBtn" class="ghost">取消</button>
-            <button type="submit">保存</button>
+            <button id="passwordDialogCancelBtn" type="button" class="ghost">取消</button>
+            <button type="submit">保存密码</button>
         </div>
     </form>
 </dialog>

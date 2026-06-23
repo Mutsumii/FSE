@@ -50,9 +50,7 @@ public class CentralTradingClient {
     public boolean stockExists(String stockCode) throws IOException, InterruptedException {
         JsonNode root = request("GET", "/api/central-trading/stocks", null);
         for (JsonNode node : root) {
-            if (stockCode.equals(text(node, "stockCode"))) {
-                return true;
-            }
+            if (stockCode.equals(text(node, "stockCode"))) return true;
         }
         return false;
     }
@@ -66,7 +64,6 @@ public class CentralTradingClient {
         result.put("stockCode", stockCode);
         result.put("stockName", text(stock, "stockName"));
         result.put("lastPrice", decimalText(stock, "latestPrice"));
-        result.put("lastQuantity", 0);
         result.put("previousClose", decimalText(stock, "previousClose"));
         result.put("highestPrice", decimalText(stock, "highestPrice"));
         result.put("lowestPrice", decimalText(stock, "lowestPrice"));
@@ -78,14 +75,6 @@ public class CentralTradingClient {
         result.put("buyOrders", normalizeOrders(data.path("buyOrders")));
         result.put("sellOrders", normalizeOrders(data.path("sellOrders")));
         return result;
-    }
-
-    public void pause(String stockCode) throws IOException, InterruptedException {
-        request("POST", "/api/central-trading/admin/stocks/" + stockCode + "/suspend", Map.of());
-    }
-
-    public void resume(String stockCode) throws IOException, InterruptedException {
-        request("POST", "/api/central-trading/admin/stocks/" + stockCode + "/resume", Map.of());
     }
 
     public void setLimitRate(String stockCode, String stockType, String limitRate) throws IOException, InterruptedException {
