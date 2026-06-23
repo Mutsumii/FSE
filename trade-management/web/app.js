@@ -444,6 +444,9 @@ $("registerBtn").addEventListener("click", register);
 $("showLoginBtn").addEventListener("click", () => setAuthMode("login"));
 $("showRegisterBtn").addEventListener("click", () => setAuthMode("register"));
 $("logoutBtn").addEventListener("click", logout);
+$("backToPortalBtn").addEventListener("click", () => {
+    window.location.href = "http://localhost:3000/";
+});
 $("helpBtn").addEventListener("click", showHelp);
 $("changePasswordBtn").addEventListener("click", changePassword);
 $("deleteAccountBtn").addEventListener("click", deleteAccount);
