@@ -83,10 +83,12 @@ public class MarketController {
             for (Map<String, Object> row : rows) {
                 Map<String, Object> trade = new LinkedHashMap<>();
                 trade.put("tradeNo", row.get("trade_no"));
-                String buyerId = row.get("buyer_order_id").toString();
-                String sellerId = row.get("seller_order_id").toString();
-                trade.put("buyerName", accountService.getAccountName(buyerId));
-                trade.put("sellerName", accountService.getAccountName(sellerId));
+                String buyerOrderId = row.get("buyer_order_id").toString();
+                String sellerOrderId = row.get("seller_order_id").toString();
+                String buyerAccountId = getAccountIdByOrderId(buyerOrderId);
+                String sellerAccountId = getAccountIdByOrderId(sellerOrderId);
+                trade.put("buyerName", buyerAccountId != null ? accountService.getAccountName(buyerAccountId) : "unknown");
+                trade.put("sellerName", sellerAccountId != null ? accountService.getAccountName(sellerAccountId) : "unknown");
                 trade.put("stockCode", row.get("stock_code"));
                 trade.put("dealPrice", new BigDecimal(row.get("trade_price").toString()));
                 trade.put("dealQuantity", Integer.parseInt(row.get("trade_quantity").toString()));
@@ -100,5 +102,14 @@ public class MarketController {
         response.put("recentTrades", recentTrades);
 
         return response;
+    }
+
+    private String getAccountIdByOrderId(String orderId) {
+        try {
+            return jdbcTemplate.queryForObject(
+                "SELECT account_id FROM order_book WHERE order_id = ?", String.class, orderId);
+        } catch (Exception e) {
+            return null;
+        }
     }
 }
