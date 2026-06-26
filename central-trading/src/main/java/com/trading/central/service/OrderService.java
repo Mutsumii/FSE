@@ -4,19 +4,14 @@ import com.trading.central.dashboard.TradingEventBroadcaster;
 import com.trading.central.engine.MatchingEngine;
 import com.trading.central.engine.PriceLimiter;
 import com.trading.central.kafka.KafkaProducerService;
-import com.trading.central.model.OrderCommandMsg;
 import com.trading.central.model.CancelCommandMsg;
-import com.trading.central.model.StockQueryMsg;
+import com.trading.central.model.OrderCommandMsg;
 import com.trading.central.model.OrderEntry;
 import com.trading.central.model.StockInfo;
+import com.trading.central.model.StockQueryMsg;
 import com.trading.central.util.Constants.OrderStatus;
 import com.trading.central.util.Constants.Side;
 import com.trading.central.util.Constants.TradeStatus;
-import lombok.extern.slf4j.Slf4j;
-import org.springframework.jdbc.core.JdbcTemplate;
-import org.springframework.stereotype.Service;
-import org.springframework.transaction.annotation.Transactional;
-
 import java.math.BigDecimal;
 import java.math.RoundingMode;
 import java.time.LocalDate;
@@ -26,6 +21,9 @@ import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.stream.Collectors;
+import lombok.extern.slf4j.Slf4j;
+import org.springframework.jdbc.core.JdbcTemplate;
+import org.springframework.stereotype.Service;
 
 @Slf4j
 @Service
@@ -40,7 +38,15 @@ public class OrderService {
     private final KafkaProducerService kafkaProducerService;
     private final TradingEventBroadcaster broadcaster;
 
-    public OrderService(JdbcTemplate jdbcTemplate, MatchingEngine matchingEngine, PriceLimiter priceLimiter, TradeService tradeService, StockService stockService, AccountService accountService, KafkaProducerService kafkaProducerService, TradingEventBroadcaster broadcaster) {
+    public OrderService(
+            JdbcTemplate jdbcTemplate,
+            MatchingEngine matchingEngine,
+            PriceLimiter priceLimiter,
+            TradeService tradeService,
+            StockService stockService,
+            AccountService accountService,
+            KafkaProducerService kafkaProducerService,
+            TradingEventBroadcaster broadcaster) {
         this.jdbcTemplate = jdbcTemplate;
         this.matchingEngine = matchingEngine;
         this.priceLimiter = priceLimiter;
@@ -52,25 +58,43 @@ public class OrderService {
     }
 
     public void receiveOrder(OrderCommandMsg msg) {
-        if (msg.getAccountId() == null || msg.getOrderId() == null || msg.getStockCode() == null || msg.getSide() == null || msg.getPrice() == null || msg.getQuantity() == null) {
-            log.warn("[OrderService] 委托参数不完整: {}", msg.getOrderId());
-            kafkaProducerService.sendOrderReport(msg.getOrderId() != null ? msg.getOrderId() : "UNKNOWN", OrderStatus.REJECTED.name(), "委托参数不完整");
+        if (msg.getAccountId() == null
+                || msg.getSecurityAccountNo() == null
+                || msg.getOrderId() == null
+                || msg.getStockCode() == null
+                || msg.getSide() == null
+                || msg.getPrice() == null
+                || msg.getQuantity() == null) {
+            log.warn("[OrderService] incomplete order params: {}", msg.getOrderId());
+            kafkaProducerService.sendOrderReport(
+                    msg.getOrderId() != null ? msg.getOrderId() : "UNKNOWN",
+                    OrderStatus.REJECTED.name(),
+                    "incomplete order params");
             return;
         }
 
         if (!Side.BUY.name().equals(msg.getSide()) && !Side.SELL.name().equals(msg.getSide())) {
-            kafkaProducerService.sendOrderReport(msg.getOrderId(), OrderStatus.REJECTED.name(), "无效的买卖方向: " + msg.getSide());
+            kafkaProducerService.sendOrderReport(
+                    msg.getOrderId(),
+                    OrderStatus.REJECTED.name(),
+                    "invalid side: " + msg.getSide());
             return;
         }
 
         StockInfo stockInfo = stockService.getStockInfo(msg.getStockCode());
         if (stockInfo == null) {
-            kafkaProducerService.sendOrderReport(msg.getOrderId(), OrderStatus.REJECTED.name(), "股票 " + msg.getStockCode() + " 不存在");
+            kafkaProducerService.sendOrderReport(
+                    msg.getOrderId(),
+                    OrderStatus.REJECTED.name(),
+                    "stock not found: " + msg.getStockCode());
             return;
         }
 
         if (TradeStatus.SUSPENDED.name().equals(stockInfo.getTradeStatus())) {
-            kafkaProducerService.sendOrderReport(msg.getOrderId(), OrderStatus.REJECTED.name(), "股票 " + msg.getStockCode() + " 已停牌，暂停交易");
+            kafkaProducerService.sendOrderReport(
+                    msg.getOrderId(),
+                    OrderStatus.REJECTED.name(),
+                    "stock is suspended: " + msg.getStockCode());
             return;
         }
 
@@ -82,47 +106,82 @@ public class OrderService {
 
         try {
             if (Side.BUY.name().equals(msg.getSide())) {
-                BigDecimal freezeAmount = msg.getPrice().multiply(new BigDecimal(msg.getQuantity()));
-                accountService.freezeFunds(msg.getAccountId(), freezeAmount);
+                BigDecimal freezeAmount = msg.getPrice().multiply(BigDecimal.valueOf(msg.getQuantity()));
+                accountService.freezeFunds(msg.getAccountId(), msg.getOrderId(), freezeAmount);
             } else {
-                accountService.freezeHolding(msg.getAccountId(), msg.getStockCode(), msg.getQuantity());
+                accountService.freezeHolding(
+                        msg.getSecurityAccountNo(),
+                        msg.getStockCode(),
+                        msg.getOrderId(),
+                        msg.getQuantity());
             }
         } catch (Exception err) {
-            kafkaProducerService.sendOrderReport(msg.getOrderId(), OrderStatus.REJECTED.name(), "冻结失败: " + err.getMessage());
+            kafkaProducerService.sendOrderReport(
+                    msg.getOrderId(),
+                    OrderStatus.REJECTED.name(),
+                    "freeze failed: " + err.getMessage());
             return;
         }
 
-        LocalDateTime entryTime = msg.getTimestamp() != null ? LocalDateTime.parse(msg.getTimestamp(), DateTimeFormatter.ISO_DATE_TIME) : LocalDateTime.now();
+        LocalDateTime entryTime = msg.getTimestamp() != null
+                ? LocalDateTime.parse(msg.getTimestamp(), DateTimeFormatter.ISO_DATE_TIME)
+                : LocalDateTime.now();
         LocalDate tradeDate = LocalDate.now();
 
         try {
             jdbcTemplate.update(
-                "INSERT INTO order_book (order_id, account_id, stock_code, side, price, quantity, filled_quantity, remaining_quantity, status, entry_time, update_time, trade_date) VALUES (?, ?, ?, ?, ?, ?, 0, ?, ?, ?, ?, ?)",
-                msg.getOrderId(), msg.getAccountId(), msg.getStockCode(), msg.getSide(), msg.getPrice(), msg.getQuantity(), msg.getQuantity(), OrderStatus.ACCEPTED.name(), entryTime, entryTime, tradeDate
-            );
+                    "INSERT INTO order_book (order_id, account_id, security_account_no, stock_code, side, price, quantity, filled_quantity, remaining_quantity, status, entry_time, update_time, trade_date) "
+                            + "VALUES (?, ?, ?, ?, ?, ?, ?, 0, ?, ?, ?, ?, ?)",
+                    msg.getOrderId(),
+                    msg.getAccountId(),
+                    msg.getSecurityAccountNo(),
+                    msg.getStockCode(),
+                    msg.getSide(),
+                    msg.getPrice(),
+                    msg.getQuantity(),
+                    msg.getQuantity(),
+                    OrderStatus.ACCEPTED.name(),
+                    entryTime,
+                    entryTime,
+                    tradeDate);
         } catch (Exception err) {
             if (err.getMessage() != null && err.getMessage().contains("Duplicate entry")) {
-                kafkaProducerService.sendOrderReport(msg.getOrderId(), OrderStatus.REJECTED.name(), "重复的委托编号");
+                kafkaProducerService.sendOrderReport(
+                        msg.getOrderId(),
+                        OrderStatus.REJECTED.name(),
+                        "duplicate order id");
             } else {
-                kafkaProducerService.sendOrderReport(msg.getOrderId(), OrderStatus.REJECTED.name(), "系统错误: " + err.getMessage());
+                kafkaProducerService.sendOrderReport(
+                        msg.getOrderId(),
+                        OrderStatus.REJECTED.name(),
+                        "system error: " + err.getMessage());
             }
+
             try {
                 if (Side.BUY.name().equals(msg.getSide())) {
-                    accountService.releaseFunds(msg.getAccountId(), msg.getPrice().multiply(new BigDecimal(msg.getQuantity())));
+                    accountService.releaseFunds(
+                            msg.getAccountId(),
+                            msg.getOrderId(),
+                            msg.getPrice().multiply(BigDecimal.valueOf(msg.getQuantity())));
                 } else {
-                    accountService.releaseHolding(msg.getAccountId(), msg.getStockCode(), msg.getQuantity());
+                    accountService.releaseHolding(
+                            msg.getSecurityAccountNo(),
+                            msg.getStockCode(),
+                            msg.getOrderId(),
+                            msg.getQuantity());
                 }
             } catch (Exception rollbackErr) {
-                log.error("[OrderService] 冻结回滚失败: {}", msg.getOrderId(), rollbackErr);
+                log.error("[OrderService] rollback release failed: {}", msg.getOrderId(), rollbackErr);
             }
             return;
         }
 
-        kafkaProducerService.sendOrderReport(msg.getOrderId(), OrderStatus.ACCEPTED.name(), "委托已受理");
+        kafkaProducerService.sendOrderReport(msg.getOrderId(), OrderStatus.ACCEPTED.name(), "order accepted");
 
         OrderEntry orderEntry = new OrderEntry();
         orderEntry.setOrderId(msg.getOrderId());
         orderEntry.setAccountId(msg.getAccountId());
+        orderEntry.setSecurityAccountNo(msg.getSecurityAccountNo());
         orderEntry.setStockCode(msg.getStockCode());
         orderEntry.setSide(msg.getSide());
         orderEntry.setPrice(msg.getPrice());
@@ -132,114 +191,149 @@ public class OrderService {
         orderEntry.setStatus(OrderStatus.ACCEPTED.name());
         orderEntry.setEntryTime(entryTime);
 
-        broadcaster.order(msg.getStockCode(), msg.getOrderId(), msg.getAccountId(),
-                msg.getSide(), msg.getPrice().toPlainString(), String.valueOf(msg.getQuantity()),
-                "委托已受理");
+        broadcaster.order(
+                msg.getStockCode(),
+                msg.getOrderId(),
+                msg.getAccountId(),
+                msg.getSide(),
+                msg.getPrice().toPlainString(),
+                String.valueOf(msg.getQuantity()),
+                "order accepted");
 
         try {
             if (matchingEngine.getCurrentPhase() == MatchingEngine.AuctionPhase.CALL_AUCTION) {
                 matchingEngine.addToCallAuction(orderEntry);
-                log.info("[OrderService]  已加入集合竞价池（{}）", msg.getOrderId(), msg.getStockCode());
+                log.info("[OrderService] added to call auction: {} {}", msg.getOrderId(), msg.getStockCode());
             } else {
                 MatchingEngine.MatchResult result = matchingEngine.matchOrder(orderEntry, tradeService::executeTrade);
                 if (result.trades.isEmpty()) {
-                    log.info("[OrderService] {} 无匹配对手方，已挂单等待", msg.getOrderId());
+                    log.info("[OrderService] no counterparty yet, order queued: {}", msg.getOrderId());
                 }
             }
-        } catch (Exception e) {
-            log.error("[OrderService] 撮合异常", e);
+        } catch (Exception err) {
+            log.error("[OrderService] matching failed", err);
         }
     }
 
-    public void cancelOrder(CancelCommandMsg msg) {
+    public boolean cancelOrder(CancelCommandMsg msg) {
         if (msg.getOrderId() == null) {
-            log.warn("[OrderService] 撤单缺少 orderId");
-            return;
+            log.warn("[OrderService] cancel missing orderId");
+            return false;
         }
 
         List<Map<String, Object>> rows = jdbcTemplate.queryForList(
-            "SELECT order_id, account_id, stock_code, side, price, quantity, filled_quantity, remaining_quantity, status FROM order_book WHERE order_id = ?",
-            msg.getOrderId()
-        );
+                "SELECT order_id, account_id, security_account_no, stock_code, side, price, quantity, filled_quantity, remaining_quantity, status "
+                        + "FROM order_book WHERE order_id = ?",
+                msg.getOrderId());
 
         if (rows.isEmpty()) {
-            kafkaProducerService.sendOrderReport(msg.getOrderId(), OrderStatus.REJECTED.name(), "委托不存在");
-            return;
+            kafkaProducerService.sendOrderReport(msg.getOrderId(), OrderStatus.REJECTED.name(), "order not found");
+            return false;
         }
 
         Map<String, Object> order = rows.get(0);
         String status = order.get("status").toString();
-
-        if (OrderStatus.TRADED.name().equals(status) || OrderStatus.CANCELED.name().equals(status) || OrderStatus.EXPIRED.name().equals(status)) {
-            kafkaProducerService.sendOrderReport(msg.getOrderId(), OrderStatus.REJECTED.name(), "委托状态为 " + status + "，无法撤单");
-            return;
+        if (OrderStatus.TRADED.name().equals(status)
+                || OrderStatus.CANCELED.name().equals(status)
+                || OrderStatus.EXPIRED.name().equals(status)) {
+            kafkaProducerService.sendOrderReport(
+                    msg.getOrderId(),
+                    OrderStatus.REJECTED.name(),
+                    "cannot cancel order in status " + status);
+            return false;
         }
 
         matchingEngine.cancelOrderInBook(msg.getOrderId(), order.get("stock_code").toString());
 
-        jdbcTemplate.update("UPDATE order_book SET status = ?, update_time = NOW() WHERE order_id = ?", OrderStatus.CANCELED.name(), msg.getOrderId());
+        int updatedRows = jdbcTemplate.update(
+                "UPDATE order_book SET status = ?, remaining_quantity = 0, update_time = NOW() "
+                        + "WHERE order_id = ? AND status NOT IN (?, ?, ?)",
+                OrderStatus.CANCELED.name(),
+                msg.getOrderId(),
+                OrderStatus.TRADED.name(),
+                OrderStatus.CANCELED.name(),
+                OrderStatus.EXPIRED.name());
+        if (updatedRows == 0) {
+            kafkaProducerService.sendOrderReport(
+                    msg.getOrderId(),
+                    OrderStatus.REJECTED.name(),
+                    "cancel failed because order status changed");
+            log.warn("[OrderService] cancel update skipped: {}", msg.getOrderId());
+            return false;
+        }
 
         int remainQty = Integer.parseInt(order.get("remaining_quantity").toString());
         BigDecimal price = new BigDecimal(order.get("price").toString());
-
         try {
             if (Side.BUY.name().equals(order.get("side").toString())) {
-                accountService.releaseFunds(order.get("account_id").toString(), price.multiply(new BigDecimal(remainQty)));
+                accountService.releaseFunds(
+                        order.get("account_id").toString(),
+                        msg.getOrderId(),
+                        price.multiply(BigDecimal.valueOf(remainQty)));
             } else {
-                accountService.releaseHolding(order.get("account_id").toString(), order.get("stock_code").toString(), remainQty);
+                accountService.releaseHolding(
+                        order.get("security_account_no").toString(),
+                        order.get("stock_code").toString(),
+                        msg.getOrderId(),
+                        remainQty);
             }
         } catch (Exception err) {
-            log.error("[OrderService] 撤单释放资源失败: {}", msg.getOrderId(), err);
+            log.error("[OrderService] cancel release failed: {}", msg.getOrderId(), err);
         }
 
-        kafkaProducerService.sendOrderReport(msg.getOrderId(), OrderStatus.CANCELED.name(), "用户撤单成功");
-        log.info("[OrderService] 撤单成功: {}", msg.getOrderId());
-        broadcaster.cancel(order.get("stock_code").toString(), msg.getOrderId(), msg.getAccountId(), "用户撤单成功");
+        kafkaProducerService.sendOrderReport(msg.getOrderId(), OrderStatus.CANCELED.name(), "cancel succeeded");
+        log.info("[OrderService] cancel succeeded: {}", msg.getOrderId());
+        broadcaster.cancel(
+                order.get("stock_code").toString(),
+                msg.getOrderId(),
+                msg.getAccountId(),
+                "cancel succeeded");
+        return true;
     }
 
     public void handleStockQuery(StockQueryMsg msg) {
         if (msg.getStockCode() == null) {
-            log.warn("[OrderService] 行情查询缺少 stockCode");
+            log.warn("[OrderService] stock query missing stockCode");
             return;
         }
         stockService.queryAndSendQuote(msg.getStockCode());
-        log.debug("[OrderService] 行情查询已处理: {}", msg.getStockCode());
+        log.debug("[OrderService] stock query handled: {}", msg.getStockCode());
     }
 
     public Map<String, Object> buildOrderFeedback(String orderId) {
         List<Map<String, Object>> orders = jdbcTemplate.queryForList(
-            "SELECT order_id, account_id, stock_code, side, price, quantity, filled_quantity, remaining_quantity, status, reject_reason, entry_time, update_time " +
-            "FROM order_book WHERE order_id = ?", orderId
-        );
-
+                "SELECT order_id, account_id, security_account_no, stock_code, side, price, quantity, filled_quantity, remaining_quantity, status, reject_reason, entry_time, update_time "
+                        + "FROM order_book WHERE order_id = ?",
+                orderId);
         if (orders.isEmpty()) {
             return null;
         }
 
         Map<String, Object> order = orders.get(0);
         List<Map<String, Object>> trades = jdbcTemplate.queryForList(
-            "SELECT trade_no, trade_price, trade_quantity, trade_amount, trade_time " +
-            "FROM trade_record WHERE buyer_order_id = ? OR seller_order_id = ? ORDER BY trade_time",
-            orderId, orderId
-        );
+                "SELECT trade_no, trade_price, trade_quantity, trade_amount, trade_time "
+                        + "FROM trade_record WHERE buyer_order_id = ? OR seller_order_id = ? ORDER BY trade_time",
+                orderId,
+                orderId);
 
         BigDecimal weightedAmount = BigDecimal.ZERO;
         int tradedQuantity = 0;
         for (Map<String, Object> trade : trades) {
-            BigDecimal price = new BigDecimal(trade.get("trade_price").toString());
-            int quantity = Integer.parseInt(trade.get("trade_quantity").toString());
-            weightedAmount = weightedAmount.add(price.multiply(new BigDecimal(quantity)));
-            tradedQuantity += quantity;
+            BigDecimal tradePrice = new BigDecimal(trade.get("trade_price").toString());
+            int tradeQuantity = Integer.parseInt(trade.get("trade_quantity").toString());
+            weightedAmount = weightedAmount.add(tradePrice.multiply(BigDecimal.valueOf(tradeQuantity)));
+            tradedQuantity += tradeQuantity;
         }
 
         BigDecimal averageTradePrice = null;
         if (tradedQuantity > 0) {
-            averageTradePrice = weightedAmount.divide(new BigDecimal(tradedQuantity), 2, RoundingMode.HALF_UP);
+            averageTradePrice = weightedAmount.divide(BigDecimal.valueOf(tradedQuantity), 2, RoundingMode.HALF_UP);
         }
 
         Map<String, Object> feedback = new HashMap<>();
         feedback.put("orderId", order.get("order_id"));
         feedback.put("accountId", order.get("account_id"));
+        feedback.put("securityAccountNo", order.get("security_account_no"));
         feedback.put("stockCode", order.get("stock_code"));
         feedback.put("side", order.get("side"));
         feedback.put("orderPrice", new BigDecimal(order.get("price").toString()));
@@ -261,14 +355,13 @@ public class OrderService {
             item.put("tradeTime", trade.get("trade_time"));
             return item;
         }).collect(Collectors.toList()));
-
         return feedback;
     }
 
     public Map<String, Object> pushOrderFeedback(String orderId) {
         Map<String, Object> feedback = buildOrderFeedback(orderId);
         if (feedback == null) {
-            kafkaProducerService.sendOrderReport(orderId, OrderStatus.REJECTED.name(), "委托不存在");
+            kafkaProducerService.sendOrderReport(orderId, OrderStatus.REJECTED.name(), "order not found");
             return null;
         }
 
@@ -285,18 +378,22 @@ public class OrderService {
         Object averageTradePrice = feedback.get("averageTradePrice");
 
         if (OrderStatus.TRADED.name().equals(status)) {
-            return "全部成交 " + filledQuantity + "/" + orderQuantity + (averageTradePrice != null ? "，均价 " + averageTradePrice : "");
+            return "fully traded " + filledQuantity + "/" + orderQuantity
+                    + (averageTradePrice != null ? ", avg " + averageTradePrice : "");
         }
         if (OrderStatus.PART_TRADED.name().equals(status)) {
-            return "部分成交 " + filledQuantity + "/" + orderQuantity + (averageTradePrice != null ? "，均价 " + averageTradePrice : "");
+            return "partially traded " + filledQuantity + "/" + orderQuantity
+                    + (averageTradePrice != null ? ", avg " + averageTradePrice : "");
         }
         if (OrderStatus.EXPIRED.name().equals(status)) {
-            return "当日委托已过期";
+            return "order expired";
         }
         if (OrderStatus.CANCELED.name().equals(status)) {
-            return "用户撤单成功";
+            return "cancel succeeded";
         }
         Object reason = feedback.get("reason");
-        return reason != null && !reason.toString().isBlank() ? reason.toString() : "委托状态: " + status;
+        return reason != null && !reason.toString().isBlank()
+                ? reason.toString()
+                : "order status " + status;
     }
 }

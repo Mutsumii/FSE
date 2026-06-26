@@ -1,5 +1,6 @@
 package com.trading.central.service;
 
+import com.trading.central.model.StockInfo;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.http.ResponseEntity;
@@ -15,6 +16,7 @@ import java.util.Map;
 public class AccountService {
 
     private final RestTemplate restTemplate;
+    private final StockService stockService;
 
     @Value("${app.account.api-base}")
     private String apiBase;
@@ -22,8 +24,9 @@ public class AccountService {
     @Value("${app.account.mock:true}")
     private boolean isMock;
 
-    public AccountService(RestTemplate restTemplate) {
+    public AccountService(RestTemplate restTemplate, StockService stockService) {
         this.restTemplate = restTemplate;
+        this.stockService = stockService;
     }
 
     private void callAccountApi(String path, Map<String, Object> body) {
@@ -39,102 +42,84 @@ public class AccountService {
                 log.error("[AccountService] {} failed: {}", path, response.getStatusCode());
                 throw new RuntimeException("Account API error: " + response.getStatusCode());
             }
+            Map responseBody = response.getBody();
+            if (responseBody != null) {
+                Object code = responseBody.get("code");
+                if (code instanceof Number && ((Number) code).intValue() != 0) {
+                    throw new RuntimeException("Account API business error: " + responseBody.get("message"));
+                }
+                Object success = responseBody.get("success");
+                if (success instanceof Boolean && !((Boolean) success)) {
+                    throw new RuntimeException("Account API business error: " + responseBody.get("message"));
+                }
+            }
         } catch (Exception e) {
             log.error("[AccountService] {} call error: {}", path, e.getMessage());
             throw new RuntimeException("Account API call failed", e);
         }
     }
 
-    public void freezeFunds(String accountId, BigDecimal amount) {
-        Map<String, Object> body = new HashMap<>();
-        body.put("fund_acc_no", accountId);
-        body.put("delta_fund_a", amount.negate());
-        body.put("delta_fund_f", amount);
-        callAccountApi("/api/fund-accounts/updateBalance", body);
+    private String stockNameOf(String stockCode) {
+        StockInfo stockInfo = stockService.getStockInfo(stockCode);
+        return stockInfo != null ? stockInfo.getStockName() : stockCode;
     }
 
-    public void settleBuyFunds(String accountId, BigDecimal amount) {
+    private void updateFundBalance(String fundAccountNo, String refOrderId, String txnType, BigDecimal amount) {
         Map<String, Object> body = new HashMap<>();
-        body.put("fund_acc_no", accountId);
-        body.put("delta_fund_a", BigDecimal.ZERO);
-        body.put("delta_fund_f", amount.negate());
-        callAccountApi("/api/fund-accounts/updateBalance", body);
+        body.put("fund_acc_no", fundAccountNo);
+        body.put("ref_order_id", refOrderId);
+        body.put("txn_type", txnType);
+        body.put("amount", amount);
+        callAccountApi("/api/external/trade/fund-balance", body);
     }
 
-    public void settleSellFunds(String accountId, BigDecimal amount) {
+    private void updateSecurityHolding(String securityAccountNo, String stockCode, String stockName,
+                                       String refOrderId, String changeType, int quantity, BigDecimal price) {
         Map<String, Object> body = new HashMap<>();
-        body.put("fund_acc_no", accountId);
-        body.put("delta_fund_a", amount);
-        body.put("delta_fund_f", BigDecimal.ZERO);
-        callAccountApi("/api/fund-accounts/updateBalance", body);
-    }
-
-    public void releaseFunds(String accountId, BigDecimal amount) {
-        Map<String, Object> body = new HashMap<>();
-        body.put("fund_acc_no", accountId);
-        body.put("delta_fund_a", amount);
-        body.put("delta_fund_f", amount.negate());
-        callAccountApi("/api/fund-accounts/updateBalance", body);
-    }
-
-    public void freezeHolding(String accountId, String stockCode, int quantity) {
-        Map<String, Object> body = new HashMap<>();
-        body.put("sec_acc_no", accountId);
+        body.put("sec_acc_no", securityAccountNo);
         body.put("stock_code", stockCode);
-        body.put("delta_security_a", -quantity);
-        body.put("delta_security_f", quantity);
-        callAccountApi("/api/security-accounts/updateHolding", body);
+        body.put("stock_name", stockName);
+        body.put("ref_order_id", refOrderId);
+        body.put("change_type", changeType);
+        body.put("quantity", quantity);
+        body.put("price", price);
+        callAccountApi("/api/external/trade/security-holding", body);
     }
 
-    public void settleSellerHolding(String accountId, String stockCode, int quantity) {
-        Map<String, Object> body = new HashMap<>();
-        body.put("sec_acc_no", accountId);
-        body.put("stock_code", stockCode);
-        body.put("delta_security_a", 0);
-        body.put("delta_security_f", -quantity);
-        callAccountApi("/api/security-accounts/updateHolding", body);
+    public void freezeFunds(String fundAccountNo, String refOrderId, BigDecimal amount) {
+        updateFundBalance(fundAccountNo, refOrderId, "买入冻结", amount);
     }
 
-    public void settleBuyerHolding(String accountId, String stockCode, int quantity) {
-        Map<String, Object> body = new HashMap<>();
-        body.put("sec_acc_no", accountId);
-        body.put("stock_code", stockCode);
-        body.put("delta_security_a", quantity);
-        body.put("delta_security_f", 0);
-        callAccountApi("/api/security-accounts/updateHolding", body);
+    public void settleBuyFunds(String fundAccountNo, String refOrderId, BigDecimal amount) {
+        updateFundBalance(fundAccountNo, refOrderId, "买入扣款", amount);
     }
 
-    public void releaseHolding(String accountId, String stockCode, int quantity) {
-        Map<String, Object> body = new HashMap<>();
-        body.put("sec_acc_no", accountId);
-        body.put("stock_code", stockCode);
-        body.put("delta_security_a", quantity);
-        body.put("delta_security_f", -quantity);
-        callAccountApi("/api/security-accounts/updateHolding", body);
+    public void settleSellFunds(String fundAccountNo, String refOrderId, BigDecimal amount) {
+        updateFundBalance(fundAccountNo, refOrderId, "卖出回款", amount);
+    }
+
+    public void releaseFunds(String fundAccountNo, String refOrderId, BigDecimal amount) {
+        updateFundBalance(fundAccountNo, refOrderId, "撤单解冻", amount);
+    }
+
+    public void freezeHolding(String securityAccountNo, String stockCode, String refOrderId, int quantity) {
+        updateSecurityHolding(securityAccountNo, stockCode, stockNameOf(stockCode), refOrderId, "卖出冻结", quantity, null);
+    }
+
+    public void settleSellerHolding(String securityAccountNo, String stockCode, String refOrderId, int quantity, BigDecimal price) {
+        updateSecurityHolding(securityAccountNo, stockCode, stockNameOf(stockCode), refOrderId, "卖出扣减", quantity, price);
+    }
+
+    public void settleBuyerHolding(String securityAccountNo, String stockCode, String refOrderId, int quantity, BigDecimal price) {
+        updateSecurityHolding(securityAccountNo, stockCode, stockNameOf(stockCode), refOrderId, "买入增加", quantity, price);
+    }
+
+    public void releaseHolding(String securityAccountNo, String stockCode, String refOrderId, int quantity) {
+        updateSecurityHolding(securityAccountNo, stockCode, stockNameOf(stockCode), refOrderId, "撤单释放", quantity, null);
     }
 
     public String getAccountName(String accountId) {
-        if (isMock) {
-            String suffix = accountId.length() >= 4 ? accountId.substring(accountId.length() - 4) : accountId;
-            return "user" + suffix;
-        }
-
-        String url = apiBase + "/api/fund-accounts/" + accountId + "/name";
-        try {
-            ResponseEntity<Map> response = restTemplate.getForEntity(url, Map.class);
-            if (response.getStatusCode().is2xxSuccessful() && response.getBody() != null) {
-                Object name = response.getBody().get("accountName");
-                if (name != null) {
-                    return name.toString();
-                }
-                Object realName = response.getBody().get("realName");
-                if (realName != null) {
-                    return realName.toString();
-                }
-            }
-        } catch (Exception e) {
-            log.warn("[AccountService] get account name failed: {}, using default", accountId, e);
-        }
-        return "user" + (accountId.length() >= 4 ? accountId.substring(accountId.length() - 4) : accountId);
+        String suffix = accountId.length() >= 4 ? accountId.substring(accountId.length() - 4) : accountId;
+        return "user" + suffix;
     }
 }

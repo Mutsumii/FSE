@@ -8,6 +8,7 @@ import java.time.LocalDateTime;
 public class OrderEntry {
     private String orderId;
     private String accountId;
+    private String securityAccountNo;
     private String stockCode;
     private String side; // BUY or SELL
     private BigDecimal price;

@@ -3,16 +3,19 @@ const state = {
     role: localStorage.getItem("managementRole"),
     username: localStorage.getItem("managementUsername"),
     selectedStock: null,
+    selectedStockData: null,
+    orderSort: { BUY: "price", SELL: "price" },
     authMode: "login",
-    dialogResolver: null
 };
 
 const $ = (id) => document.getElementById(id);
 
+let dialogResolve = null;
+
 async function api(path, options = {}) {
     const headers = {
         "Content-Type": "application/json",
-        ...(options.headers || {})
+        ...(options.headers || {}),
     };
     if (state.token) {
         headers.Authorization = `Bearer ${state.token}`;
@@ -25,15 +28,47 @@ async function api(path, options = {}) {
     return body.data;
 }
 
-function setIdentity() {
-    $("currentAdminName").textContent = state.username || "";
+function openDialog(message, { input = false, password = false, cancel = false, warning = "" } = {}) {
+    const dialog = $("appDialog");
+    $("dialogMessage").textContent = message;
+    $("dialogWarning").textContent = warning;
+    $("dialogWarning").classList.toggle("hidden", !warning);
+    $("dialogInput").classList.toggle("hidden", !input);
+    $("dialogInput").type = password ? "password" : "text";
+    $("dialogInput").value = "";
+    $("dialogCancelBtn").classList.toggle("hidden", !cancel);
+    dialog.showModal();
+    if (input) {
+        $("dialogInput").focus();
+    } else {
+        $("dialogConfirmBtn").focus();
+    }
+    return new Promise((resolve) => {
+        dialogResolve = resolve;
+    });
+}
+
+const showAlert = (message) => openDialog(message);
+const showConfirm = (message, warning = "") => openDialog(message, { cancel: true, warning });
+const showPrompt = (message, password = false) => openDialog(message, { input: true, password, cancel: true });
+
+function finishDialog(value) {
+    if (!$("appDialog").open) {
+        return;
+    }
+    $("appDialog").close();
+    const resolve = dialogResolve;
+    dialogResolve = null;
+    if (resolve) {
+        resolve(value);
+    }
 }
 
 function showDashboard() {
     $("loginView").classList.add("hidden");
     $("dashboardView").classList.remove("hidden");
     $("adminIdentity").classList.remove("hidden");
-    setIdentity();
+    $("currentAdminName").textContent = state.username || "";
     const isSuper = state.role === "SUPER_ADMIN";
     $("adminUsersSection").classList.toggle("hidden", !isSuper);
     $("auditSection").classList.toggle("hidden", !isSuper);
@@ -45,19 +80,12 @@ function showLogin() {
     $("adminIdentity").classList.add("hidden");
 }
 
-function persistLogin(data) {
-    state.token = data.token;
-    state.role = data.role;
-    state.username = data.username;
-    localStorage.setItem("managementToken", data.token);
-    localStorage.setItem("managementRole", data.role);
-    localStorage.setItem("managementUsername", data.username);
-}
-
 function logout() {
     state.token = null;
     state.role = null;
     state.username = null;
+    state.selectedStock = null;
+    state.selectedStockData = null;
     localStorage.removeItem("managementToken");
     localStorage.removeItem("managementRole");
     localStorage.removeItem("managementUsername");
@@ -71,10 +99,15 @@ async function login() {
             method: "POST",
             body: JSON.stringify({
                 username: $("username").value.trim(),
-                password: $("password").value
-            })
+                password: $("password").value,
+            }),
         });
-        persistLogin(data);
+        state.token = data.token;
+        state.role = data.role;
+        state.username = data.username || $("username").value.trim();
+        localStorage.setItem("managementToken", data.token);
+        localStorage.setItem("managementRole", data.role);
+        localStorage.setItem("managementUsername", state.username);
         showDashboard();
         await loadAll();
     } catch (error) {
@@ -90,10 +123,15 @@ async function register() {
             body: JSON.stringify({
                 username: $("username").value.trim(),
                 password: $("password").value,
-                confirmPassword: $("confirmPassword").value
-            })
+                confirmPassword: $("confirmPassword").value,
+            }),
         });
-        persistLogin(data);
+        state.token = data.token;
+        state.role = data.role;
+        state.username = data.username || $("username").value.trim();
+        localStorage.setItem("managementToken", data.token);
+        localStorage.setItem("managementRole", data.role);
+        localStorage.setItem("managementUsername", state.username);
         showDashboard();
         await loadAll();
     } catch (error) {
@@ -116,41 +154,6 @@ function setAuthMode(mode) {
     $("loginMessage").textContent = "";
 }
 
-function showDialog(title, message, withInput = false, password = false) {
-    $("dialogTitle").textContent = title;
-    $("dialogMessage").textContent = message;
-    $("dialogInput").classList.toggle("hidden", !withInput);
-    $("dialogInput").type = password ? "password" : "text";
-    $("dialogInput").value = "";
-    $("appDialog").showModal();
-    if (withInput) {
-        $("dialogInput").focus();
-    }
-    return new Promise(resolve => {
-        state.dialogResolver = resolve;
-    });
-}
-
-function finishDialog(value) {
-    $("appDialog").close();
-    if (state.dialogResolver) {
-        state.dialogResolver(value);
-        state.dialogResolver = null;
-    }
-}
-
-function showAlert(message) {
-    return showDialog("提示", message, false, false);
-}
-
-function showConfirm(message, title = "确认") {
-    return showDialog(title, message, false, false);
-}
-
-function showPrompt(message, password = false) {
-    return showDialog("请输入", message, true, password);
-}
-
 async function changePassword() {
     $("passwordDialogForm").reset();
     $("passwordDialogError").classList.add("hidden");
@@ -169,7 +172,7 @@ async function deleteAccount() {
     try {
         await api("/api/admin/account", {
             method: "DELETE",
-            body: JSON.stringify({ password })
+            body: JSON.stringify({ password }),
         });
         await showAlert("管理员账号已注销");
         logout();
@@ -178,9 +181,19 @@ async function deleteAccount() {
     }
 }
 
+async function showHelp() {
+    await showAlert(`系统从中央交易系统读取股票行情和买卖委托。
+
+交易客户端提交委托后，系统自动检查黑名单、价格、数量和金额。单笔超过 10 万元，或同一资金账户当日第 6 笔起，进入人工核验。
+
+普通管理员只能查看和审核已授权股票；超级管理员拥有全部股票权限，并可维护管理员权限。
+
+黑名单支持身份证号和姓名查询。管理员的重要操作会写入审计日志。`);
+}
+
 async function loadStocks() {
     const stocks = await api("/api/admin/stocks");
-    $("stockList").innerHTML = stocks.map(stock => `
+    $("stockList").innerHTML = stocks.map((stock) => `
         <div class="stock-card ${state.selectedStock === stock.stockCode ? "active" : ""}" data-code="${stock.stockCode}">
             <div class="stock-name">
                 <span>${stock.stockName}</span>
@@ -189,13 +202,22 @@ async function loadStocks() {
             <div class="stock-meta">最新价 ${stock.lastPrice ?? "-"} | ${stock.status === "TRADING" ? "交易中" : "已暂停"}</div>
         </div>
     `).join("");
-    document.querySelectorAll(".stock-card").forEach(card => {
+    document.querySelectorAll(".stock-card").forEach((card) => {
         card.addEventListener("click", () => selectStock(card.dataset.code));
     });
 }
 
-function orderTable(title, orders) {
-    const rows = orders.map(order => `
+function orderTable(title, side, orders) {
+    const sourceOrders = Array.isArray(orders) ? orders : [];
+    const sortBy = state.orderSort[side];
+    const sortedOrders = [...sourceOrders].sort((a, b) => {
+        if (sortBy === "time") {
+            return String(a.enteredAt).localeCompare(String(b.enteredAt));
+        }
+        return Number(b[sortBy]) - Number(a[sortBy]);
+    });
+
+    const rows = sortedOrders.map((order) => `
         <tr>
             <td>${order.orderId}</td>
             <td>${order.price}</td>
@@ -203,9 +225,17 @@ function orderTable(title, orders) {
             <td>${String(order.enteredAt).replace("T", " ")}</td>
         </tr>
     `).join("");
+
     return `
         <div>
-            <h2>${title}</h2>
+            <div class="order-table-head">
+                <h2>${title}</h2>
+                <select data-order-sort="${side}" aria-label="${title}排序方式">
+                    <option value="price" ${sortBy === "price" ? "selected" : ""}>按价格</option>
+                    <option value="quantity" ${sortBy === "quantity" ? "selected" : ""}>按数量</option>
+                    <option value="time" ${sortBy === "time" ? "selected" : ""}>按时间</option>
+                </select>
+            </div>
             <table>
                 <thead><tr><th>委托号</th><th>价格</th><th>股数</th><th>进入时间</th></tr></thead>
                 <tbody>${rows || "<tr><td colspan='4'>暂无指令</td></tr>"}</tbody>
@@ -218,12 +248,30 @@ async function selectStock(stockCode) {
     state.selectedStock = stockCode;
     await loadStocks();
     const data = await api(`/api/admin/stocks/${stockCode}/orders`);
+    state.selectedStockData = data;
+    renderStockDetail();
+}
+
+function renderStockDetail() {
+    const data = state.selectedStockData;
+    if (!data) {
+        return;
+    }
+
     $("stockDetail").classList.remove("empty");
     $("stockDetail").innerHTML = `
         <div class="detail-head">
             <div>
                 <h2>${data.stockName} ${data.stockCode}</h2>
-                <div>最新成交价 ${data.lastPrice ?? "-"}，最新成交数量 ${data.lastQuantity ?? 0}</div>
+                <div class="market-summary">
+                    <span class="market-latest">最新<strong>${data.lastPrice ?? "--"}</strong></span>
+                    <span>昨收<strong>${data.previousClose ?? "--"}</strong></span>
+                    <span>最高<strong>${data.highestPrice ?? "--"}</strong></span>
+                    <span>最低<strong>${data.lowestPrice ?? "--"}</strong></span>
+                    <span>买一<strong>${data.bidPrice ?? "--"}</strong></span>
+                    <span>卖一<strong>${data.askPrice ?? "--"}</strong></span>
+                </div>
+                ${data.notice ? `<div class="stock-notice">公告：${data.notice}</div>` : ""}
             </div>
             <span class="status ${data.status === "TRADING" ? "trading" : "paused"}">${data.status === "TRADING" ? "交易中" : "已暂停"}</span>
         </div>
@@ -236,13 +284,20 @@ async function selectStock(stockCode) {
             </div>
         </div>
         <div class="order-grid">
-            ${orderTable("买指令", data.buyOrders || [])}
-            ${orderTable("卖指令", data.sellOrders || [])}
+            ${orderTable("买指令", "BUY", data.buyOrders || [])}
+            ${orderTable("卖指令", "SELL", data.sellOrders || [])}
         </div>
     `;
+
     $("stockDetail").querySelector("[data-action='pause']").addEventListener("click", () => updateStockStatus("pause"));
     $("stockDetail").querySelector("[data-action='resume']").addEventListener("click", () => updateStockStatus("resume"));
     $("stockDetail").querySelector("[data-action='limit']").addEventListener("click", updateLimitRate);
+    document.querySelectorAll("[data-order-sort]").forEach((select) => {
+        select.addEventListener("change", () => {
+            state.orderSort[select.dataset.orderSort] = select.value;
+            renderStockDetail();
+        });
+    });
 }
 
 async function updateStockStatus(action) {
@@ -258,7 +313,7 @@ async function updateLimitRate() {
     }
     await api(`/api/admin/stocks/${state.selectedStock}/limit-rate`, {
         method: "POST",
-        body: JSON.stringify({ nextLimitRate })
+        body: JSON.stringify({ nextLimitRate }),
     });
     await showAlert("设置成功，次日生效");
 }
@@ -267,9 +322,9 @@ async function loadBlacklist() {
     const list = await api("/api/admin/blacklist");
     $("blacklistTable").innerHTML = `
         <table>
-            <thead><tr><th>证件号</th><th>姓名</th><th>资金账户</th><th>证券账户</th><th>原因</th><th>操作</th></tr></thead>
+            <thead><tr><th>身份证号</th><th>姓名</th><th>资金账户</th><th>证券账户</th><th>原因</th><th>操作</th></tr></thead>
             <tbody>
-            ${list.map(item => `
+            ${list.map((item) => `
                 <tr>
                     <td>${item.idCardNo}</td>
                     <td>${item.userName}</td>
@@ -282,11 +337,15 @@ async function loadBlacklist() {
             </tbody>
         </table>
     `;
-    document.querySelectorAll("[data-remove]").forEach(button => {
+    document.querySelectorAll("[data-remove]").forEach((button) => {
         button.addEventListener("click", async () => {
+            if (!await showConfirm("确认将该投资者移出黑名单？")) {
+                return;
+            }
             try {
                 await api(`/api/admin/blacklist/${encodeURIComponent(button.dataset.remove)}`, { method: "DELETE" });
                 await loadBlacklist();
+                await showAlert("已移出黑名单");
             } catch (error) {
                 await showAlert(`移出黑名单失败：${error.message}`);
             }
@@ -310,7 +369,7 @@ async function loadPendingReviews() {
                 </tr>
             </thead>
             <tbody>
-            ${list.map(item => `
+            ${list.map((item) => `
                 <tr>
                     <td>${item.reviewId}</td>
                     <td>${item.userName || item.fundAccountNo}</td>
@@ -329,7 +388,7 @@ async function loadPendingReviews() {
             </tbody>
         </table>
     `;
-    document.querySelectorAll("[data-review-action]").forEach(button => {
+    document.querySelectorAll("[data-review-action]").forEach((button) => {
         button.addEventListener("click", async () => {
             const action = button.dataset.reviewAction;
             const reviewId = button.dataset.reviewId;
@@ -341,7 +400,7 @@ async function loadPendingReviews() {
                 button.disabled = true;
                 await api(`/api/admin/reviews/${encodeURIComponent(reviewId)}/${action}`, {
                     method: "POST",
-                    body: JSON.stringify({ reason })
+                    body: JSON.stringify({ reason }),
                 });
                 await showAlert(action === "approve" ? "人工核验已通过" : "人工核验已拒绝");
                 await loadPendingReviews();
@@ -355,18 +414,23 @@ async function loadPendingReviews() {
 
 async function addBlacklist(event) {
     event.preventDefault();
-    await api("/api/admin/blacklist", {
-        method: "POST",
-        body: JSON.stringify({
-            idCardNo: $("blackIdCardNo").value.trim(),
-            userName: $("blackUserName").value.trim(),
-            fundAccountNo: $("blackFundNo").value.trim(),
-            securityAccountNo: $("blackSecurityNo").value.trim(),
-            reason: $("blackReason").value.trim()
-        })
-    });
-    event.target.reset();
-    await loadBlacklist();
+    try {
+        await api("/api/admin/blacklist", {
+            method: "POST",
+            body: JSON.stringify({
+                idCardNo: $("blackIdCardNo").value.trim(),
+                userName: $("blackUserName").value.trim(),
+                fundAccountNo: $("blackFundNo").value.trim(),
+                securityAccountNo: $("blackSecurityNo").value.trim(),
+                reason: $("blackReason").value.trim(),
+            }),
+        });
+        event.target.reset();
+        await loadBlacklist();
+        await showAlert("已加入交易黑名单");
+    } catch (error) {
+        await showAlert(`加入黑名单失败：${error.message}`);
+    }
 }
 
 async function loadAdminTools() {
@@ -378,7 +442,7 @@ async function loadAdminTools() {
 
 async function loadAdminUsers() {
     const users = await api("/api/admin/users");
-    $("adminUsersTable").innerHTML = users.map(user => `
+    $("adminUsersTable").innerHTML = users.map((user) => `
         <div class="permission-row">
             <span class="admin-id">ID ${user.id}</span>
             <strong>${user.username}</strong>
@@ -388,31 +452,34 @@ async function loadAdminUsers() {
             </select>
             <input data-stocks="${user.id}"
                    value="${user.role === "SUPER_ADMIN" ? "全部股票" : (user.stockCodes || []).join(",")}"
-                   placeholder="${user.role === "SUPER_ADMIN" ? "全部股票" : "股票代码，逗号分隔"}"
+                   placeholder="${user.role === "SUPER_ADMIN" ? "全部股票" : "未授权"}"
                    ${user.role === "SUPER_ADMIN" ? "disabled" : ""}>
             <button data-save-user="${user.id}">保存</button>
         </div>
     `).join("");
-    document.querySelectorAll("[data-role]").forEach(select => {
+
+    document.querySelectorAll("[data-role]").forEach((select) => {
         select.addEventListener("change", () => {
             const id = select.dataset.role;
             const input = document.querySelector(`[data-stocks='${id}']`);
             const isSuper = select.value === "SUPER_ADMIN";
             input.disabled = isSuper;
             input.value = isSuper ? "全部股票" : "";
-            input.placeholder = isSuper ? "全部股票" : "股票代码，逗号分隔";
+            input.placeholder = isSuper ? "全部股票" : "未授权";
         });
     });
-    document.querySelectorAll("[data-save-user]").forEach(button => {
+
+    document.querySelectorAll("[data-save-user]").forEach((button) => {
         button.addEventListener("click", async () => {
             const id = button.dataset.saveUser;
             const role = document.querySelector(`[data-role='${id}']`).value;
-            const stockCodes = role === "SUPER_ADMIN" ? [] : document.querySelector(`[data-stocks='${id}']`).value
-                .split(",").map(value => value.trim()).filter(Boolean);
+            const stockCodes = role === "SUPER_ADMIN"
+                ? []
+                : document.querySelector(`[data-stocks='${id}']`).value.split(",").map((value) => value.trim()).filter(Boolean);
             try {
                 await api(`/api/admin/users/${id}/permissions`, {
                     method: "POST",
-                    body: JSON.stringify({ role, stockCodes })
+                    body: JSON.stringify({ role, stockCodes }),
                 });
                 await showAlert("权限保存成功");
             } catch (error) {
@@ -429,13 +496,16 @@ async function controlAccount(action) {
             accountType: $("accountType").value,
             accountNo: $("controlAccountNo").value.trim(),
             freezeType: $("freezeType").value,
-            reason: $("freezeReason").value.trim()
+            reason: $("freezeReason").value.trim(),
         };
         if (!data.accountNo) {
             await showAlert("请输入账户号");
             return;
         }
-        await api(`/api/admin/accounts/${action}`, { method: "POST", body: JSON.stringify(data) });
+        await api(`/api/admin/accounts/${action}`, {
+            method: "POST",
+            body: JSON.stringify(data),
+        });
         await showAlert(action === "freeze" ? "冻结成功" : "解冻成功");
     } catch (error) {
         await showAlert(`操作失败：${error.message}`);
@@ -445,8 +515,11 @@ async function controlAccount(action) {
 async function loadAuditLogs() {
     const logs = await api("/api/admin/audit-logs");
     $("auditTable").innerHTML = `
-        <table><thead><tr><th>时间</th><th>管理员</th><th>操作</th><th>目标</th><th>详情</th></tr></thead>
-        <tbody>${logs.map(log => `<tr><td>${String(log.createdAt).replace("T", " ")}</td><td>${log.username || ""}</td><td>${log.action}</td><td>${log.targetType || ""} ${log.targetId || ""}</td><td>${log.detail || ""}</td></tr>`).join("") || "<tr><td colspan='5'>暂无日志</td></tr>"}</tbody></table>`;
+        <table>
+            <thead><tr><th>时间</th><th>管理员</th><th>操作</th><th>目标</th><th>详情</th></tr></thead>
+            <tbody>${logs.map((log) => `<tr><td>${String(log.createdAt).replace("T", " ")}</td><td>${log.username || ""}</td><td>${log.action}</td><td>${log.targetType || ""} ${log.targetId || ""}</td><td>${log.detail || ""}</td></tr>`).join("") || "<tr><td colspan='5'>暂无日志</td></tr>"}</tbody>
+        </table>
+    `;
 }
 
 async function loadAll() {
@@ -461,6 +534,13 @@ $("registerBtn").addEventListener("click", register);
 $("showLoginBtn").addEventListener("click", () => setAuthMode("login"));
 $("showRegisterBtn").addEventListener("click", () => setAuthMode("register"));
 $("logoutBtn").addEventListener("click", logout);
+$("loginBackBtn").addEventListener("click", () => {
+    window.location.href = "http://localhost:3000/";
+});
+$("backToPortalBtn").addEventListener("click", () => {
+    window.location.href = "http://localhost:3000/";
+});
+$("helpBtn").addEventListener("click", showHelp);
 $("changePasswordBtn").addEventListener("click", changePassword);
 $("deleteAccountBtn").addEventListener("click", deleteAccount);
 $("refreshBlacklistBtn").addEventListener("click", loadBlacklist);
@@ -471,23 +551,19 @@ $("blacklistForm").addEventListener("submit", addBlacklist);
 $("freezeAccountBtn").addEventListener("click", () => controlAccount("freeze"));
 $("unfreezeAccountBtn").addEventListener("click", () => controlAccount("unfreeze"));
 
-$("appDialogForm").addEventListener("submit", event => {
+$("appDialogForm").addEventListener("submit", (event) => {
     event.preventDefault();
     const inputVisible = !$("dialogInput").classList.contains("hidden");
     finishDialog(inputVisible ? $("dialogInput").value : true);
 });
 $("dialogCancelBtn").addEventListener("click", () => finishDialog(null));
-$("dialogCloseBtn").addEventListener("click", () => {
-    if ($("dialogInput").classList.contains("hidden")) {
-        finishDialog(true);
-    }
-});
-$("appDialog").addEventListener("cancel", event => {
+$("dialogCloseBtn").addEventListener("click", () => finishDialog(null));
+$("appDialog").addEventListener("cancel", (event) => {
     event.preventDefault();
     finishDialog(null);
 });
 
-$("passwordDialogForm").addEventListener("submit", async event => {
+$("passwordDialogForm").addEventListener("submit", async (event) => {
     event.preventDefault();
     const oldPassword = $("currentPasswordInput").value;
     const newPassword = $("newPasswordInput").value;
@@ -501,16 +577,17 @@ $("passwordDialogForm").addEventListener("submit", async event => {
     try {
         await api("/api/admin/password", {
             method: "POST",
-            body: JSON.stringify({ oldPassword, newPassword })
+            body: JSON.stringify({ oldPassword, newPassword }),
         });
         $("passwordDialog").close();
         await showAlert("密码修改成功");
-    } catch (err) {
-        error.textContent = err.message;
+    } catch (requestError) {
+        error.textContent = requestError.message;
         error.classList.remove("hidden");
     }
 });
 $("passwordDialogCancelBtn").addEventListener("click", () => $("passwordDialog").close());
+$("passwordDialogCloseBtn").addEventListener("click", () => $("passwordDialog").close());
 
 if (state.token) {
     showDashboard();

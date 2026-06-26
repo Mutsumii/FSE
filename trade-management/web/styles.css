@@ -21,11 +21,11 @@ body {
 }
 
 .topbar {
-    min-height: 72px;
+    height: 72px;
     display: flex;
     align-items: center;
     justify-content: space-between;
-    padding: 12px 28px;
+    padding: 0 28px;
     background: var(--black);
     color: var(--white);
     border-bottom: 4px solid var(--red);
@@ -201,13 +201,15 @@ button.ghost:hover {
 }
 
 button.ghost.danger {
-    border-color: rgba(193, 18, 31, 0.3);
-    color: var(--red);
+    color: #ffffff;
+    border-color: #ffffff;
+    background: transparent;
 }
 
 button.ghost.danger:hover {
+    color: #ffffff;
     border-color: var(--red);
-    background: #fff5f5;
+    background: var(--red);
 }
 
 .message {
@@ -217,6 +219,79 @@ button.ghost.danger:hover {
 
 .message.muted {
     color: var(--muted);
+}
+
+.app-dialog {
+    width: min(420px, calc(100% - 32px));
+    padding: 0;
+    border: 1px solid var(--line);
+    border-radius: 8px;
+    color: var(--ink);
+    background: var(--white);
+    box-shadow: 0 24px 64px rgba(17, 17, 17, 0.24);
+}
+
+.app-dialog::backdrop {
+    background: rgba(17, 17, 17, 0.55);
+}
+
+.app-dialog form {
+    padding: 20px;
+}
+
+.dialog-head {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    padding-bottom: 12px;
+    border-bottom: 3px solid var(--red);
+}
+
+.dialog-head strong {
+    color: var(--black);
+    font-size: 18px;
+}
+
+button.dialog-close {
+    width: 36px;
+    min-height: 36px;
+    padding: 0;
+    color: var(--muted);
+    background: transparent;
+    font-size: 24px;
+    line-height: 1;
+}
+
+button.dialog-close:hover {
+    color: var(--red);
+    background: #fff5f5;
+}
+
+#dialogMessage {
+    margin: 18px 0;
+    line-height: 1.6;
+    white-space: pre-line;
+}
+
+.dialog-warning {
+    margin: -8px 0 18px;
+    color: var(--red);
+    font-size: 14px;
+    font-weight: 700;
+}
+
+#passwordDialog label {
+    margin: 14px 0;
+}
+
+#dialogInput {
+    margin: 0 0 18px;
+}
+
+.dialog-actions {
+    display: flex;
+    justify-content: flex-end;
+    gap: 10px;
 }
 
 .dashboard {
@@ -335,10 +410,64 @@ button.ghost.danger:hover {
     margin: 0;
 }
 
+.market-summary {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 10px 24px;
+    margin-top: 10px;
+    color: var(--muted);
+}
+
+.market-summary span {
+    display: grid;
+    gap: 3px;
+    min-width: 58px;
+    font-size: 13px;
+}
+
+.market-summary strong {
+    color: var(--black);
+    font-size: 18px;
+    line-height: 1.2;
+}
+
+.market-summary .market-latest strong {
+    color: var(--red);
+    font-size: 22px;
+}
+
+.stock-notice {
+    margin-top: 8px;
+    color: var(--red);
+}
+
 .order-grid {
     display: grid;
     grid-template-columns: 1fr 1fr;
     gap: 16px;
+    margin-top: 32px;
+}
+
+.order-grid h2 {
+    margin: 0;
+}
+
+.order-table-head {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 12px;
+    margin-bottom: 12px;
+}
+
+.order-table-head select {
+    width: 104px;
+    height: 36px;
+    padding: 0 8px;
+    border: 1px solid var(--line);
+    border-radius: 6px;
+    background: var(--white);
+    color: var(--black);
 }
 
 table {
@@ -368,7 +497,7 @@ th {
 
 .permission-row {
     display: grid;
-    grid-template-columns: 80px 140px 140px 1fr auto;
+    grid-template-columns: 72px 130px 140px 1fr auto;
     gap: 8px;
     align-items: center;
     margin-bottom: 10px;
@@ -382,9 +511,17 @@ th {
     border-radius: 6px;
 }
 
+.permission-row input:disabled {
+    color: var(--black);
+    background: #f3f3f3;
+    font-weight: 700;
+    opacity: 1;
+}
+
 .admin-id {
     color: var(--muted);
-    font-size: 12px;
+    font-size: 13px;
+    font-weight: 700;
 }
 
 .review-actions {
@@ -429,25 +566,53 @@ th {
     font-size: 12px;
 }
 
-.app-dialog {
-    width: min(420px, calc(100% - 24px));
-    border: 1px solid var(--line);
-    border-radius: 10px;
-    padding: 0;
+.admin-identity > strong {
+    color: #ffffff;
+    font-size: 15px;
 }
 
-.app-dialog form {
-    padding: 20px;
+.audit-details summary {
+    cursor: pointer;
+    color: var(--black);
+    font-size: 18px;
+    font-weight: 700;
+    padding: 4px 0 12px;
 }
 
-.dialog-actions {
+.audit-toolbar {
     display: flex;
     justify-content: flex-end;
-    gap: 10px;
-    margin-top: 18px;
+    margin-bottom: 12px;
+}
+
+#auditTable {
+    max-height: 420px;
+    overflow: auto;
+}
+
+#reviewTable,
+#blacklistTable {
+    max-height: 420px;
+    overflow: auto;
+}
+
+#reviewTable thead,
+#blacklistTable thead,
+#auditTable thead {
+    position: sticky;
+    top: 0;
+    z-index: 1;
 }
 
 @media (max-width: 900px) {
+    .topbar {
+        height: auto;
+        min-height: 72px;
+        padding: 12px 18px;
+        gap: 12px;
+        flex-wrap: wrap;
+    }
+
     .login-card {
         grid-template-columns: 1fr;
     }
@@ -471,10 +636,6 @@ th {
 
     .sidebar {
         min-height: auto;
-    }
-
-    .topbar {
-        align-items: flex-start;
     }
 
     .admin-identity {

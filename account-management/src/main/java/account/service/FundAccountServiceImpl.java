@@ -963,10 +963,18 @@ public class FundAccountServiceImpl implements FundAccountService {
                 .txnTime(log.txnTime())
                 .refOrderId(log.refOrderId());
 
-        Optional<DomainModels.HoldingChangeLog> holdingChange = dao.holdingChangeLogDao()
-                .listByRefOrderId(log.refOrderId()).stream()
-                .max(Comparator.comparing(DomainModels.HoldingChangeLog::txnTime)
-                        .thenComparing(DomainModels.HoldingChangeLog::logId));
+        String expectedHoldingChangeType = switch (log.txnType()) {
+            case BUY_DEBIT -> "买入增加";
+            case SELL_RETURN -> "卖出扣减";
+            default -> null;
+        };
+
+        Optional<DomainModels.HoldingChangeLog> holdingChange = expectedHoldingChangeType == null
+                ? Optional.empty()
+                : dao.holdingChangeLogDao().listByRefOrderIdAndChangeType(log.refOrderId(), expectedHoldingChangeType)
+                        .stream()
+                        .max(Comparator.comparing(DomainModels.HoldingChangeLog::txnTime)
+                                .thenComparing(DomainModels.HoldingChangeLog::logId));
 
         holdingChange.ifPresent(change -> builder
                 .stockCode(change.stockCode())

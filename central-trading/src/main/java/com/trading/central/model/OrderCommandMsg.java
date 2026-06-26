@@ -6,6 +6,7 @@ import java.math.BigDecimal;
 @Data
 public class OrderCommandMsg {
     private String accountId;
+    private String securityAccountNo;
     private String orderId;
     private String stockCode;
     private String side;

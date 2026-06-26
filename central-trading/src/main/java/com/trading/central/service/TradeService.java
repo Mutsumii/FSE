@@ -74,16 +74,16 @@ public class TradeService {
 
         // 4. 调用账户系统：买方扣划冻结资金 + 增加持仓
         try {
-            accountService.settleBuyFunds(buyOrder.getAccountId(), tradeAmount);
-            accountService.settleBuyerHolding(buyOrder.getAccountId(), buyOrder.getStockCode(), tradeQty);
+            accountService.settleBuyFunds(buyOrder.getAccountId(), buyOrder.getOrderId(), tradeAmount);
+            accountService.settleBuyerHolding(buyOrder.getSecurityAccountNo(), buyOrder.getStockCode(), buyOrder.getOrderId(), tradeQty, tradePrice);
         } catch (Exception err) {
             log.error("[TradeService] 买方账户更新失败: {}", buyOrder.getOrderId(), err);
         }
 
         // 5. 调用账户系统：卖方扣减冻结持仓 + 回款
         try {
-            accountService.settleSellerHolding(sellOrder.getAccountId(), sellOrder.getStockCode(), tradeQty);
-            accountService.settleSellFunds(sellOrder.getAccountId(), tradeAmount);
+            accountService.settleSellerHolding(sellOrder.getSecurityAccountNo(), sellOrder.getStockCode(), sellOrder.getOrderId(), tradeQty, tradePrice);
+            accountService.settleSellFunds(sellOrder.getAccountId(), sellOrder.getOrderId(), tradeAmount);
         } catch (Exception err) {
             log.error("[TradeService] 卖方账户更新失败: {}", sellOrder.getOrderId(), err);
         }

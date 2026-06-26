@@ -109,6 +109,20 @@ public final class HoldingChangeLogDao extends BaseJdbcDao {
         );
     }
 
+    public List<HoldingChangeLog> listByRefOrderIdAndChangeType(String refOrderId, String changeType) {
+        if (refOrderId == null || refOrderId.isBlank() || changeType == null || changeType.isBlank()) {
+            return List.of();
+        }
+        return executor.queryList(
+                SELECT_COLUMNS + " where ref_order_id = ? and change_type = ? order by txn_time desc, log_id desc",
+                statement -> {
+                    statement.setString(1, refOrderId);
+                    statement.setString(2, changeType);
+                },
+                LOG_MAPPER
+        );
+    }
+
     private LocalDateTime defaultTimestamp(LocalDateTime value) {
         return value == null ? LocalDateTime.now() : value;
     }

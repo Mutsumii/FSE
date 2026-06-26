@@ -40,12 +40,14 @@ public class OrderController {
 
         String accountId = body.containsKey("fundAccountNo") ? body.get("fundAccountNo").toString() :
                            body.containsKey("accountId") ? body.get("accountId").toString() : null;
+        String securityAccountNo = body.containsKey("securityAccountNo") ? body.get("securityAccountNo").toString() : accountId;
 
         String side = body.containsKey("direction") ? body.get("direction").toString() :
                       body.containsKey("side") ? body.get("side").toString() : null;
 
         OrderCommandMsg msg = new OrderCommandMsg();
         msg.setAccountId(accountId);
+        msg.setSecurityAccountNo(securityAccountNo);
         msg.setOrderId(orderId);
         msg.setStockCode(body.get("stockCode") != null ? body.get("stockCode").toString() : null);
         msg.setSide(side);
@@ -71,28 +73,33 @@ public class OrderController {
     public ResponseEntity<Map<String, Object>> cancelOrder(@PathVariable String orderId, @RequestBody Map<String, Object> body) {
         String accountId = body.containsKey("fundAccountNo") ? body.get("fundAccountNo").toString() :
                            body.containsKey("accountId") ? body.get("accountId").toString() : null;
+        String securityAccountNo = body.containsKey("securityAccountNo") ? body.get("securityAccountNo").toString() : accountId;
 
         CancelCommandMsg msg = new CancelCommandMsg();
         msg.setOrderId(orderId);
         msg.setAccountId(accountId);
+        msg.setSecurityAccountNo(securityAccountNo);
         msg.setTimestamp(body.containsKey("timestamp") ? body.get("timestamp").toString() : LocalDateTime.now().format(DateTimeFormatter.ISO_LOCAL_DATE_TIME));
 
-        orderService.cancelOrder(msg);
+        boolean canceled = orderService.cancelOrder(msg);
 
         Map<String, Object> data = new HashMap<>();
-        data.put("canceled", true);
+        data.put("canceled", canceled);
 
         Map<String, Object> response = new HashMap<>();
-        response.put("success", true);
+        response.put("success", canceled);
         response.put("data", data);
-
+        if (!canceled) {
+            response.put("message", "cancel rejected");
+            return ResponseEntity.status(409).body(response);
+        }
         return ResponseEntity.status(202).body(response);
     }
 
     @GetMapping("/{orderId}/result")
     public ResponseEntity<Map<String, Object>> getOrderResult(@PathVariable String orderId) {
         List<Map<String, Object>> orders = jdbcTemplate.queryForList(
-                "SELECT order_id, account_id, stock_code, side, price, quantity, filled_quantity, remaining_quantity, status, entry_time, update_time " +
+                "SELECT order_id, account_id, security_account_no, stock_code, side, price, quantity, filled_quantity, remaining_quantity, status, entry_time, update_time " +
                 "FROM order_book WHERE order_id = ?", orderId);
 
         if (orders.isEmpty()) {

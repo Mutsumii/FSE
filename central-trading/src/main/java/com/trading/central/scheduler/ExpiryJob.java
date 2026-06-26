@@ -63,7 +63,7 @@ public class ExpiryJob {
     }
 
     public Map<String, Object> expireOrders(LocalDate tradeDate) {
-        String sql = "SELECT order_id, account_id, stock_code, side, price, remaining_quantity, status " +
+        String sql = "SELECT order_id, account_id, security_account_no, stock_code, side, price, remaining_quantity, status " +
                      "FROM order_book WHERE trade_date = ? AND status IN (?, ?)";
         List<Map<String, Object>> orders = jdbcTemplate.queryForList(sql, tradeDate, OrderStatus.ACCEPTED.name(), OrderStatus.PART_TRADED.name());
 
@@ -94,9 +94,9 @@ public class ExpiryJob {
                     String accountId = order.get("account_id").toString();
                     String stockCode = order.get("stock_code").toString();
                     if (Side.BUY.name().equals(order.get("side").toString())) {
-                        accountService.releaseFunds(accountId, price.multiply(new BigDecimal(remainQty)));
+                        accountService.releaseFunds(accountId, orderId, price.multiply(new BigDecimal(remainQty)));
                     } else {
-                        accountService.releaseHolding(accountId, stockCode, remainQty);
+                        accountService.releaseHolding(order.get("security_account_no").toString(), stockCode, orderId, remainQty);
                     }
                 }
 
