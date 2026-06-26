@@ -75,7 +75,7 @@ public class BlacklistRepository {
         }
     }
 
-    private BlacklistEntry findByIdCard(String idCardNo) throws SQLException {
+    public BlacklistEntry findByIdCard(String idCardNo) throws SQLException {
         String sql = "SELECT id_card_no, user_name, fund_account_no, security_account_no, reason, active, created_at FROM blacklist WHERE id_card_no = ?";
         try (Connection conn = database.getConnection();
              PreparedStatement ps = conn.prepareStatement(sql)) {

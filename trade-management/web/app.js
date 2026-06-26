@@ -5,17 +5,44 @@ const state = {
     selectedStock: null,
     selectedStockData: null,
     orderSort: { BUY: "price", SELL: "price" },
-    authMode: "login",
+    authMode: "login"
 };
 
 const $ = (id) => document.getElementById(id);
 
 let dialogResolve = null;
 
+function openDialog(message, { input = false, password = false, cancel = false, warning = "" } = {}) {
+    const dialog = $("appDialog");
+    $("dialogMessage").textContent = message;
+    $("dialogWarning").textContent = warning;
+    $("dialogWarning").classList.toggle("hidden", !warning);
+    $("dialogInput").classList.toggle("hidden", !input);
+    $("dialogInput").type = password ? "password" : "text";
+    $("dialogInput").value = "";
+    $("dialogCancelBtn").classList.toggle("hidden", !cancel);
+    dialog.showModal();
+    if (input) $("dialogInput").focus();
+    else $("dialogConfirmBtn").focus();
+    return new Promise(resolve => { dialogResolve = resolve; });
+}
+
+const showAlert = message => openDialog(message);
+const showConfirm = (message, warning = "") => openDialog(message, { cancel: true, warning });
+const showPrompt = (message, password = false) => openDialog(message, { input: true, password, cancel: true });
+
+function finishDialog(value) {
+    if (!$("appDialog").open) return;
+    $("appDialog").close();
+    const resolve = dialogResolve;
+    dialogResolve = null;
+    if (resolve) resolve(value);
+}
+
 async function api(path, options = {}) {
     const headers = {
         "Content-Type": "application/json",
-        ...(options.headers || {}),
+        ...(options.headers || {})
     };
     if (state.token) {
         headers.Authorization = `Bearer ${state.token}`;
@@ -28,47 +55,11 @@ async function api(path, options = {}) {
     return body.data;
 }
 
-function openDialog(message, { input = false, password = false, cancel = false, warning = "" } = {}) {
-    const dialog = $("appDialog");
-    $("dialogMessage").textContent = message;
-    $("dialogWarning").textContent = warning;
-    $("dialogWarning").classList.toggle("hidden", !warning);
-    $("dialogInput").classList.toggle("hidden", !input);
-    $("dialogInput").type = password ? "password" : "text";
-    $("dialogInput").value = "";
-    $("dialogCancelBtn").classList.toggle("hidden", !cancel);
-    dialog.showModal();
-    if (input) {
-        $("dialogInput").focus();
-    } else {
-        $("dialogConfirmBtn").focus();
-    }
-    return new Promise((resolve) => {
-        dialogResolve = resolve;
-    });
-}
-
-const showAlert = (message) => openDialog(message);
-const showConfirm = (message, warning = "") => openDialog(message, { cancel: true, warning });
-const showPrompt = (message, password = false) => openDialog(message, { input: true, password, cancel: true });
-
-function finishDialog(value) {
-    if (!$("appDialog").open) {
-        return;
-    }
-    $("appDialog").close();
-    const resolve = dialogResolve;
-    dialogResolve = null;
-    if (resolve) {
-        resolve(value);
-    }
-}
-
 function showDashboard() {
     $("loginView").classList.add("hidden");
     $("dashboardView").classList.remove("hidden");
     $("adminIdentity").classList.remove("hidden");
-    $("currentAdminName").textContent = state.username || "";
+    $("currentAdminName").textContent = state.username || "未知";
     const isSuper = state.role === "SUPER_ADMIN";
     $("adminUsersSection").classList.toggle("hidden", !isSuper);
     $("auditSection").classList.toggle("hidden", !isSuper);
@@ -80,18 +71,6 @@ function showLogin() {
     $("adminIdentity").classList.add("hidden");
 }
 
-function logout() {
-    state.token = null;
-    state.role = null;
-    state.username = null;
-    state.selectedStock = null;
-    state.selectedStockData = null;
-    localStorage.removeItem("managementToken");
-    localStorage.removeItem("managementRole");
-    localStorage.removeItem("managementUsername");
-    showLogin();
-}
-
 async function login() {
     $("loginMessage").textContent = "";
     try {
@@ -99,17 +78,20 @@ async function login() {
             method: "POST",
             body: JSON.stringify({
                 username: $("username").value.trim(),
-                password: $("password").value,
-            }),
+                password: $("password").value
+            })
         });
         state.token = data.token;
         state.role = data.role;
-        state.username = data.username || $("username").value.trim();
+        state.username = $("username").value.trim();
         localStorage.setItem("managementToken", data.token);
         localStorage.setItem("managementRole", data.role);
         localStorage.setItem("managementUsername", state.username);
         showDashboard();
-        await loadAll();
+        await loadStocks();
+        await loadPendingReviews();
+        await loadBlacklist();
+        await loadAdminTools();
     } catch (error) {
         $("loginMessage").textContent = error.message;
     }
@@ -123,17 +105,20 @@ async function register() {
             body: JSON.stringify({
                 username: $("username").value.trim(),
                 password: $("password").value,
-                confirmPassword: $("confirmPassword").value,
-            }),
+                confirmPassword: $("confirmPassword").value
+            })
         });
         state.token = data.token;
         state.role = data.role;
-        state.username = data.username || $("username").value.trim();
+        state.username = $("username").value.trim();
         localStorage.setItem("managementToken", data.token);
         localStorage.setItem("managementRole", data.role);
         localStorage.setItem("managementUsername", state.username);
         showDashboard();
-        await loadAll();
+        await loadStocks();
+        await loadPendingReviews();
+        await loadBlacklist();
+        await loadAdminTools();
     } catch (error) {
         $("loginMessage").textContent = error.message;
     }
@@ -162,23 +147,29 @@ async function changePassword() {
 }
 
 async function deleteAccount() {
-    if (!await showConfirm("注销后账号及股票权限将被永久删除，确认继续？", "注销不可撤回")) {
-        return;
-    }
+    if (!await showConfirm("注销后账号及股票权限将被永久删除，确认继续？", "注销不可撤回")) return;
     const password = await showPrompt("请输入当前密码确认注销", true);
-    if (password === null) {
-        return;
-    }
+    if (password === null) return;
     try {
         await api("/api/admin/account", {
             method: "DELETE",
-            body: JSON.stringify({ password }),
+            body: JSON.stringify({ password })
         });
         await showAlert("管理员账号已注销");
         logout();
     } catch (error) {
         await showAlert(`账号注销失败：${error.message}`);
     }
+}
+
+function logout() {
+    state.token = null;
+    state.role = null;
+    state.username = null;
+    localStorage.removeItem("managementToken");
+    localStorage.removeItem("managementRole");
+    localStorage.removeItem("managementUsername");
+    showLogin();
 }
 
 async function showHelp() {
@@ -193,31 +184,67 @@ async function showHelp() {
 
 async function loadStocks() {
     const stocks = await api("/api/admin/stocks");
-    $("stockList").innerHTML = stocks.map((stock) => `
+    $("stockList").innerHTML = stocks.map(stock => `
         <div class="stock-card ${state.selectedStock === stock.stockCode ? "active" : ""}" data-code="${stock.stockCode}">
             <div class="stock-name">
                 <span>${stock.stockName}</span>
                 <span>${stock.stockCode}</span>
             </div>
-            <div class="stock-meta">最新价 ${stock.lastPrice ?? "-"} | ${stock.status === "TRADING" ? "交易中" : "已暂停"}</div>
+            <div class="stock-meta">最新价 ${stock.lastPrice} | ${stock.status === "TRADING" ? "交易中" : "已暂停"}</div>
         </div>
     `).join("");
-    document.querySelectorAll(".stock-card").forEach((card) => {
+    document.querySelectorAll(".stock-card").forEach(card => {
         card.addEventListener("click", () => selectStock(card.dataset.code));
     });
 }
 
+async function selectStock(stockCode) {
+    state.selectedStock = stockCode;
+    await loadStocks();
+    const data = await api(`/api/admin/stocks/${stockCode}/orders`);
+    state.selectedStockData = data;
+    renderStockDetail();
+}
+
+function renderStockDetail() {
+    const data = state.selectedStockData;
+    $("stockDetail").classList.remove("empty");
+    $("stockDetail").innerHTML = `
+        <div class="detail-head">
+            <div>
+                <h2>${data.stockName} ${data.stockCode}</h2>
+                <div class="market-summary">
+                    <span class="market-latest">最新<strong>${data.lastPrice ?? "--"}</strong></span>
+                    <span>昨收<strong>${data.previousClose ?? "--"}</strong></span>
+                    <span>最高<strong>${data.highestPrice ?? "--"}</strong></span>
+                    <span>最低<strong>${data.lowestPrice ?? "--"}</strong></span>
+                    <span>买一<strong>${data.bidPrice ?? "--"}</strong></span>
+                    <span>卖一<strong>${data.askPrice ?? "--"}</strong></span>
+                </div>
+                ${data.notice ? `<div class="stock-notice">公告：${data.notice}</div>` : ""}
+            </div>
+            <span class="status ${data.status === "TRADING" ? "trading" : "paused"}">${data.status === "TRADING" ? "交易中" : "已暂停"}</span>
+        </div>
+        <div class="order-grid">
+            ${orderTable("买指令", "BUY", data.buyOrders)}
+            ${orderTable("卖指令", "SELL", data.sellOrders)}
+        </div>
+    `;
+    document.querySelectorAll("[data-order-sort]").forEach(select => {
+        select.addEventListener("change", () => {
+            state.orderSort[select.dataset.orderSort] = select.value;
+            renderStockDetail();
+        });
+    });
+}
+
 function orderTable(title, side, orders) {
-    const sourceOrders = Array.isArray(orders) ? orders : [];
     const sortBy = state.orderSort[side];
-    const sortedOrders = [...sourceOrders].sort((a, b) => {
-        if (sortBy === "time") {
-            return String(a.enteredAt).localeCompare(String(b.enteredAt));
-        }
+    const sortedOrders = [...orders].sort((a, b) => {
+        if (sortBy === "time") return String(a.enteredAt).localeCompare(String(b.enteredAt));
         return Number(b[sortBy]) - Number(a[sortBy]);
     });
-
-    const rows = sortedOrders.map((order) => `
+    const rows = sortedOrders.map(order => `
         <tr>
             <td>${order.orderId}</td>
             <td>${order.price}</td>
@@ -225,7 +252,6 @@ function orderTable(title, side, orders) {
             <td>${String(order.enteredAt).replace("T", " ")}</td>
         </tr>
     `).join("");
-
     return `
         <div>
             <div class="order-table-head">
@@ -244,87 +270,13 @@ function orderTable(title, side, orders) {
     `;
 }
 
-async function selectStock(stockCode) {
-    state.selectedStock = stockCode;
-    await loadStocks();
-    const data = await api(`/api/admin/stocks/${stockCode}/orders`);
-    state.selectedStockData = data;
-    renderStockDetail();
-}
-
-function renderStockDetail() {
-    const data = state.selectedStockData;
-    if (!data) {
-        return;
-    }
-
-    $("stockDetail").classList.remove("empty");
-    $("stockDetail").innerHTML = `
-        <div class="detail-head">
-            <div>
-                <h2>${data.stockName} ${data.stockCode}</h2>
-                <div class="market-summary">
-                    <span class="market-latest">最新<strong>${data.lastPrice ?? "--"}</strong></span>
-                    <span>昨收<strong>${data.previousClose ?? "--"}</strong></span>
-                    <span>最高<strong>${data.highestPrice ?? "--"}</strong></span>
-                    <span>最低<strong>${data.lowestPrice ?? "--"}</strong></span>
-                    <span>买一<strong>${data.bidPrice ?? "--"}</strong></span>
-                    <span>卖一<strong>${data.askPrice ?? "--"}</strong></span>
-                </div>
-                ${data.notice ? `<div class="stock-notice">公告：${data.notice}</div>` : ""}
-            </div>
-            <span class="status ${data.status === "TRADING" ? "trading" : "paused"}">${data.status === "TRADING" ? "交易中" : "已暂停"}</span>
-        </div>
-        <div class="actions">
-            <button data-action="pause">暂停交易</button>
-            <button data-action="resume" class="ghost">恢复交易</button>
-            <div class="limit-control">
-                <input id="limitRateInput" placeholder="次日涨跌幅 如 0.10">
-                <button data-action="limit">设置涨跌停</button>
-            </div>
-        </div>
-        <div class="order-grid">
-            ${orderTable("买指令", "BUY", data.buyOrders || [])}
-            ${orderTable("卖指令", "SELL", data.sellOrders || [])}
-        </div>
-    `;
-
-    $("stockDetail").querySelector("[data-action='pause']").addEventListener("click", () => updateStockStatus("pause"));
-    $("stockDetail").querySelector("[data-action='resume']").addEventListener("click", () => updateStockStatus("resume"));
-    $("stockDetail").querySelector("[data-action='limit']").addEventListener("click", updateLimitRate);
-    document.querySelectorAll("[data-order-sort]").forEach((select) => {
-        select.addEventListener("change", () => {
-            state.orderSort[select.dataset.orderSort] = select.value;
-            renderStockDetail();
-        });
-    });
-}
-
-async function updateStockStatus(action) {
-    await api(`/api/admin/stocks/${state.selectedStock}/${action}`, { method: "POST" });
-    await selectStock(state.selectedStock);
-}
-
-async function updateLimitRate() {
-    const nextLimitRate = $("limitRateInput").value.trim();
-    if (!nextLimitRate) {
-        await showAlert("请输入次日涨跌幅");
-        return;
-    }
-    await api(`/api/admin/stocks/${state.selectedStock}/limit-rate`, {
-        method: "POST",
-        body: JSON.stringify({ nextLimitRate }),
-    });
-    await showAlert("设置成功，次日生效");
-}
-
 async function loadBlacklist() {
     const list = await api("/api/admin/blacklist");
     $("blacklistTable").innerHTML = `
         <table>
             <thead><tr><th>身份证号</th><th>姓名</th><th>资金账户</th><th>证券账户</th><th>原因</th><th>操作</th></tr></thead>
             <tbody>
-            ${list.map((item) => `
+            ${list.map(item => `
                 <tr>
                     <td>${item.idCardNo}</td>
                     <td>${item.userName}</td>
@@ -337,11 +289,9 @@ async function loadBlacklist() {
             </tbody>
         </table>
     `;
-    document.querySelectorAll("[data-remove]").forEach((button) => {
+    document.querySelectorAll("[data-remove]").forEach(button => {
         button.addEventListener("click", async () => {
-            if (!await showConfirm("确认将该投资者移出黑名单？")) {
-                return;
-            }
+            if (!await showConfirm("确认将该投资者移出黑名单？")) return;
             try {
                 await api(`/api/admin/blacklist/${encodeURIComponent(button.dataset.remove)}`, { method: "DELETE" });
                 await loadBlacklist();
@@ -369,7 +319,7 @@ async function loadPendingReviews() {
                 </tr>
             </thead>
             <tbody>
-            ${list.map((item) => `
+            ${list.map(item => `
                 <tr>
                     <td>${item.reviewId}</td>
                     <td>${item.userName || item.fundAccountNo}</td>
@@ -388,19 +338,17 @@ async function loadPendingReviews() {
             </tbody>
         </table>
     `;
-    document.querySelectorAll("[data-review-action]").forEach((button) => {
+    document.querySelectorAll("[data-review-action]").forEach(button => {
         button.addEventListener("click", async () => {
             const action = button.dataset.reviewAction;
             const reviewId = button.dataset.reviewId;
             const reason = await showPrompt(action === "approve" ? "请输入通过说明" : "请输入拒绝原因");
-            if (reason === null) {
-                return;
-            }
+            if (reason === null) return;
             try {
                 button.disabled = true;
                 await api(`/api/admin/reviews/${encodeURIComponent(reviewId)}/${action}`, {
                     method: "POST",
-                    body: JSON.stringify({ reason }),
+                    body: JSON.stringify({ reason })
                 });
                 await showAlert(action === "approve" ? "人工核验已通过" : "人工核验已拒绝");
                 await loadPendingReviews();
@@ -422,8 +370,8 @@ async function addBlacklist(event) {
                 userName: $("blackUserName").value.trim(),
                 fundAccountNo: $("blackFundNo").value.trim(),
                 securityAccountNo: $("blackSecurityNo").value.trim(),
-                reason: $("blackReason").value.trim(),
-            }),
+                reason: $("blackReason").value.trim()
+            })
         });
         event.target.reset();
         await loadBlacklist();
@@ -434,15 +382,13 @@ async function addBlacklist(event) {
 }
 
 async function loadAdminTools() {
-    if (state.role !== "SUPER_ADMIN") {
-        return;
-    }
+    if (state.role !== "SUPER_ADMIN") return;
     await Promise.all([loadAdminUsers(), loadAuditLogs()]);
 }
 
 async function loadAdminUsers() {
     const users = await api("/api/admin/users");
-    $("adminUsersTable").innerHTML = users.map((user) => `
+    $("adminUsersTable").innerHTML = users.map(user => `
         <div class="permission-row">
             <span class="admin-id">ID ${user.id}</span>
             <strong>${user.username}</strong>
@@ -457,8 +403,7 @@ async function loadAdminUsers() {
             <button data-save-user="${user.id}">保存</button>
         </div>
     `).join("");
-
-    document.querySelectorAll("[data-role]").forEach((select) => {
+    document.querySelectorAll("[data-role]").forEach(select => {
         select.addEventListener("change", () => {
             const id = select.dataset.role;
             const input = document.querySelector(`[data-stocks='${id}']`);
@@ -468,18 +413,15 @@ async function loadAdminUsers() {
             input.placeholder = isSuper ? "全部股票" : "未授权";
         });
     });
-
-    document.querySelectorAll("[data-save-user]").forEach((button) => {
+    document.querySelectorAll("[data-save-user]").forEach(button => {
         button.addEventListener("click", async () => {
             const id = button.dataset.saveUser;
             const role = document.querySelector(`[data-role='${id}']`).value;
-            const stockCodes = role === "SUPER_ADMIN"
-                ? []
-                : document.querySelector(`[data-stocks='${id}']`).value.split(",").map((value) => value.trim()).filter(Boolean);
+            const stockCodes = role === "SUPER_ADMIN" ? [] : document.querySelector(`[data-stocks='${id}']`).value
+                .split(",").map(value => value.trim()).filter(Boolean);
             try {
                 await api(`/api/admin/users/${id}/permissions`, {
-                    method: "POST",
-                    body: JSON.stringify({ role, stockCodes }),
+                    method: "POST", body: JSON.stringify({ role, stockCodes })
                 });
                 await showAlert("权限保存成功");
             } catch (error) {
@@ -490,43 +432,11 @@ async function loadAdminUsers() {
     });
 }
 
-async function controlAccount(action) {
-    try {
-        const data = {
-            accountType: $("accountType").value,
-            accountNo: $("controlAccountNo").value.trim(),
-            freezeType: $("freezeType").value,
-            reason: $("freezeReason").value.trim(),
-        };
-        if (!data.accountNo) {
-            await showAlert("请输入账户号");
-            return;
-        }
-        await api(`/api/admin/accounts/${action}`, {
-            method: "POST",
-            body: JSON.stringify(data),
-        });
-        await showAlert(action === "freeze" ? "冻结成功" : "解冻成功");
-    } catch (error) {
-        await showAlert(`操作失败：${error.message}`);
-    }
-}
-
 async function loadAuditLogs() {
     const logs = await api("/api/admin/audit-logs");
     $("auditTable").innerHTML = `
-        <table>
-            <thead><tr><th>时间</th><th>管理员</th><th>操作</th><th>目标</th><th>详情</th></tr></thead>
-            <tbody>${logs.map((log) => `<tr><td>${String(log.createdAt).replace("T", " ")}</td><td>${log.username || ""}</td><td>${log.action}</td><td>${log.targetType || ""} ${log.targetId || ""}</td><td>${log.detail || ""}</td></tr>`).join("") || "<tr><td colspan='5'>暂无日志</td></tr>"}</tbody>
-        </table>
-    `;
-}
-
-async function loadAll() {
-    await loadStocks();
-    await loadPendingReviews();
-    await loadBlacklist();
-    await loadAdminTools();
+        <table><thead><tr><th>时间</th><th>管理员</th><th>操作</th><th>目标</th><th>详情</th></tr></thead>
+        <tbody>${logs.map(log => `<tr><td>${String(log.createdAt).replace("T", " ")}</td><td>${log.username || ""}</td><td>${log.action}</td><td>${log.targetType || ""} ${log.targetId || ""}</td><td>${log.detail || ""}</td></tr>`).join("") || "<tr><td colspan='5'>暂无日志</td></tr>"}</tbody></table>`;
 }
 
 $("loginBtn").addEventListener("click", login);
@@ -534,36 +444,24 @@ $("registerBtn").addEventListener("click", register);
 $("showLoginBtn").addEventListener("click", () => setAuthMode("login"));
 $("showRegisterBtn").addEventListener("click", () => setAuthMode("register"));
 $("logoutBtn").addEventListener("click", logout);
-$("loginBackBtn").addEventListener("click", () => {
-    window.location.href = "http://localhost:3000/";
-});
 $("backToPortalBtn").addEventListener("click", () => {
     window.location.href = "http://localhost:3000/";
 });
 $("helpBtn").addEventListener("click", showHelp);
 $("changePasswordBtn").addEventListener("click", changePassword);
 $("deleteAccountBtn").addEventListener("click", deleteAccount);
-$("refreshBlacklistBtn").addEventListener("click", loadBlacklist);
-$("refreshReviewsBtn").addEventListener("click", loadPendingReviews);
-$("refreshUsersBtn").addEventListener("click", loadAdminUsers);
-$("refreshAuditBtn").addEventListener("click", loadAuditLogs);
-$("blacklistForm").addEventListener("submit", addBlacklist);
-$("freezeAccountBtn").addEventListener("click", () => controlAccount("freeze"));
-$("unfreezeAccountBtn").addEventListener("click", () => controlAccount("unfreeze"));
-
-$("appDialogForm").addEventListener("submit", (event) => {
+$("appDialogForm").addEventListener("submit", event => {
     event.preventDefault();
     const inputVisible = !$("dialogInput").classList.contains("hidden");
     finishDialog(inputVisible ? $("dialogInput").value : true);
 });
 $("dialogCancelBtn").addEventListener("click", () => finishDialog(null));
 $("dialogCloseBtn").addEventListener("click", () => finishDialog(null));
-$("appDialog").addEventListener("cancel", (event) => {
+$("appDialog").addEventListener("cancel", event => {
     event.preventDefault();
     finishDialog(null);
 });
-
-$("passwordDialogForm").addEventListener("submit", async (event) => {
+$("passwordDialogForm").addEventListener("submit", async event => {
     event.preventDefault();
     const oldPassword = $("currentPasswordInput").value;
     const newPassword = $("newPasswordInput").value;
@@ -577,7 +475,7 @@ $("passwordDialogForm").addEventListener("submit", async (event) => {
     try {
         await api("/api/admin/password", {
             method: "POST",
-            body: JSON.stringify({ oldPassword, newPassword }),
+            body: JSON.stringify({ oldPassword, newPassword })
         });
         $("passwordDialog").close();
         await showAlert("密码修改成功");
@@ -588,11 +486,16 @@ $("passwordDialogForm").addEventListener("submit", async (event) => {
 });
 $("passwordDialogCancelBtn").addEventListener("click", () => $("passwordDialog").close());
 $("passwordDialogCloseBtn").addEventListener("click", () => $("passwordDialog").close());
+$("refreshBlacklistBtn").addEventListener("click", loadBlacklist);
+$("refreshReviewsBtn").addEventListener("click", loadPendingReviews);
+$("refreshUsersBtn").addEventListener("click", loadAdminUsers);
+$("blacklistForm").addEventListener("submit", addBlacklist);
 
 if (state.token) {
     showDashboard();
-    loadAll().catch(() => {
-        logout();
+    loadStocks().then(loadPendingReviews).then(loadBlacklist).then(loadAdminTools).catch(() => {
+        localStorage.removeItem("managementToken");
+        showLogin();
     });
 } else {
     showLogin();

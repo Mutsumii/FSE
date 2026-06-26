@@ -10,7 +10,6 @@ import edu.zju.se.management.repository.AuditRepository;
 import edu.zju.se.management.repository.BlacklistRepository;
 import edu.zju.se.management.repository.ReviewRepository;
 import edu.zju.se.management.repository.StockRepository;
-import edu.zju.se.management.service.AccountManagementClient;
 import edu.zju.se.management.service.AuthService;
 import edu.zju.se.management.service.CentralTradingClient;
 import edu.zju.se.management.service.ReviewService;
@@ -33,19 +32,9 @@ public class ManagementApplication {
         AuthService authService = new AuthService(adminRepository, config.authTokenMinutes());
         CentralTradingClient centralTradingClient = new CentralTradingClient(config);
         ReviewService reviewService = new ReviewService(stockRepository, blacklistRepository, reviewRepository, centralTradingClient);
-        AccountManagementClient accountManagementClient = new AccountManagementClient(config);
 
         HttpServer server = HttpServer.create(new InetSocketAddress(config.serverPort()), 0);
-        server.createContext("/api/admin", new AdminHandler(
-                authService,
-                adminRepository,
-                stockRepository,
-                blacklistRepository,
-                reviewRepository,
-                auditRepository,
-                centralTradingClient,
-                accountManagementClient
-        ));
+        server.createContext("/api/admin", new AdminHandler(authService, adminRepository, stockRepository, blacklistRepository, reviewRepository, auditRepository, centralTradingClient));
         server.createContext("/api/trade-management", new ApiHandler(reviewService, blacklistRepository));
         server.createContext("/", new StaticFileHandler("web"));
         server.setExecutor(Executors.newFixedThreadPool(16));

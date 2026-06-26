@@ -8,7 +8,6 @@ import edu.zju.se.management.repository.AuditRepository;
 import edu.zju.se.management.repository.BlacklistRepository;
 import edu.zju.se.management.repository.ReviewRepository;
 import edu.zju.se.management.repository.StockRepository;
-import edu.zju.se.management.service.AccountManagementClient;
 import edu.zju.se.management.service.AuthService;
 import edu.zju.se.management.service.CentralTradingClient;
 import edu.zju.se.management.util.JsonUtil;
@@ -25,12 +24,8 @@ public class AdminHandler extends BaseHandler {
     private final ReviewRepository reviewRepository;
     private final AuditRepository auditRepository;
     private final CentralTradingClient centralTradingClient;
-    private final AccountManagementClient accountManagementClient;
 
-    public AdminHandler(AuthService authService, AdminRepository adminRepository, StockRepository stockRepository,
-                        BlacklistRepository blacklistRepository, ReviewRepository reviewRepository,
-                        AuditRepository auditRepository, CentralTradingClient centralTradingClient,
-                        AccountManagementClient accountManagementClient) {
+    public AdminHandler(AuthService authService, AdminRepository adminRepository, StockRepository stockRepository, BlacklistRepository blacklistRepository, ReviewRepository reviewRepository, AuditRepository auditRepository, CentralTradingClient centralTradingClient) {
         this.authService = authService;
         this.adminRepository = adminRepository;
         this.stockRepository = stockRepository;
@@ -38,7 +33,6 @@ public class AdminHandler extends BaseHandler {
         this.reviewRepository = reviewRepository;
         this.auditRepository = auditRepository;
         this.centralTradingClient = centralTradingClient;
-        this.accountManagementClient = accountManagementClient;
     }
 
     @Override
@@ -70,17 +64,12 @@ public class AdminHandler extends BaseHandler {
                 List<Map<String, Object>> centralStocks = centralTradingClient.getStocks();
                 if (!"SUPER_ADMIN".equals(admin.role())) {
                     centralStocks.removeIf(stock -> {
-                        try {
-                            return !stockRepository.canManage(admin.id(), admin.role(), stock.get("stockCode").toString());
-                        } catch (Exception e) {
-                            throw new RuntimeException(e);
-                        }
+                        try { return !stockRepository.canManage(admin.id(), admin.role(), stock.get("stockCode").toString()); }
+                        catch (Exception e) { throw new RuntimeException(e); }
                     });
                 }
                 stocks = centralStocks;
-            } else {
-                stocks = stockRepository.findStocksForAdmin(admin.id(), admin.role());
-            }
+            } else stocks = stockRepository.findStocksForAdmin(admin.id(), admin.role());
             sendJson(exchange, 200, ApiResponse.ok(stocks));
             return;
         }
@@ -93,7 +82,7 @@ public class AdminHandler extends BaseHandler {
                 return;
             }
             Stock stock = stockRepository.findByCode(stockCode)
-                    .orElseThrow(() -> new NotFoundException("股票不存在"));
+                    .orElseThrow(() -> new IllegalArgumentException("股票不存在"));
             Map<String, Object> data = new HashMap<>();
             data.put("stockCode", stock.stockCode());
             data.put("stockName", stock.stockName());
@@ -116,30 +105,6 @@ public class AdminHandler extends BaseHandler {
             }
             auditRepository.log(admin, "SET_LIMIT_RATE", "STOCK", parts[4], request.nextLimitRate);
             sendJson(exchange, 200, ApiResponse.ok(Map.of("stockCode", parts[4], "nextLimitRate", request.nextLimitRate)));
-            return;
-        }
-
-        if ("POST".equals(method) && parts.length == 6 && "stocks".equals(parts[3]) && "pause".equals(parts[5])) {
-            requireStockAccess(admin, parts[4]);
-            if (centralTradingClient.enabled()) {
-                centralTradingClient.pause(parts[4]);
-            } else {
-                stockRepository.updateStatus(parts[4], "PAUSED");
-            }
-            auditRepository.log(admin, "PAUSE_TRADING", "STOCK", parts[4], "暂停交易");
-            sendJson(exchange, 200, ApiResponse.ok(Map.of("stockCode", parts[4], "status", "PAUSED")));
-            return;
-        }
-
-        if ("POST".equals(method) && parts.length == 6 && "stocks".equals(parts[3]) && "resume".equals(parts[5])) {
-            requireStockAccess(admin, parts[4]);
-            if (centralTradingClient.enabled()) {
-                centralTradingClient.resume(parts[4]);
-            } else {
-                stockRepository.updateStatus(parts[4], "TRADING");
-            }
-            auditRepository.log(admin, "RESUME_TRADING", "STOCK", parts[4], "恢复交易");
-            sendJson(exchange, 200, ApiResponse.ok(Map.of("stockCode", parts[4], "status", "TRADING")));
             return;
         }
 
@@ -196,7 +161,7 @@ public class AdminHandler extends BaseHandler {
             String idCardNo = request.idCardNo.trim().toUpperCase();
             Object entry = blacklistRepository.add(idCardNo, request.userName.trim(), request.fundAccountNo,
                     request.securityAccountNo, request.reason.trim());
-            auditRepository.log(admin, "ADD_BLACKLIST", "INVESTOR", idCardNo, request.reason.trim());
+            auditRepository.log(admin, "ADD_BLACKLIST", "INVESTOR", request.idCardNo, request.reason);
             sendJson(exchange, 200, ApiResponse.ok(entry));
             return;
         }
@@ -240,14 +205,10 @@ public class AdminHandler extends BaseHandler {
             List<Map<String, Object>> users = adminRepository.findAllWithPermissions();
             if (centralTradingClient.enabled()) {
                 var availableCodes = centralTradingClient.getStocks().stream()
-                        .map(stock -> stock.get("stockCode").toString())
-                        .collect(java.util.stream.Collectors.toSet());
+                        .map(stock -> stock.get("stockCode").toString()).collect(java.util.stream.Collectors.toSet());
                 for (Map<String, Object> user : users) {
-                    if ("SUPER_ADMIN".equals(user.get("role"))) {
-                        user.put("stockCodes", List.of());
-                    } else {
-                        ((List<?>) user.get("stockCodes")).removeIf(code -> !availableCodes.contains(code.toString()));
-                    }
+                    if ("SUPER_ADMIN".equals(user.get("role"))) user.put("stockCodes", List.of());
+                    else ((List<?>) user.get("stockCodes")).removeIf(code -> !availableCodes.contains(code.toString()));
                     user.put("availableStockCodes", availableCodes);
                 }
             }
@@ -263,11 +224,8 @@ public class AdminHandler extends BaseHandler {
             List<String> stockCodes = request.stockCodes == null ? List.of() : request.stockCodes;
             if (centralTradingClient.enabled() && !"SUPER_ADMIN".equals(role)) {
                 var availableCodes = centralTradingClient.getStocks().stream()
-                        .map(stock -> stock.get("stockCode").toString())
-                        .collect(java.util.stream.Collectors.toSet());
-                if (!availableCodes.containsAll(stockCodes)) {
-                    throw new IllegalArgumentException("授权股票必须来自中央交易系统");
-                }
+                        .map(stock -> stock.get("stockCode").toString()).collect(java.util.stream.Collectors.toSet());
+                if (!availableCodes.containsAll(stockCodes)) throw new IllegalArgumentException("授权股票必须来自中央交易系统");
             }
             adminRepository.replacePermissions(targetAdminId, role, stockCodes);
             auditRepository.log(admin, "UPDATE_PERMISSIONS", "ADMIN", parts[4], role + " " + request.stockCodes);
@@ -281,23 +239,6 @@ public class AdminHandler extends BaseHandler {
             return;
         }
 
-        if ("POST".equals(method) && "/api/admin/accounts/freeze".equals(path)) {
-            AccountControlRequest request = JsonUtil.read(exchange.getRequestBody(), AccountControlRequest.class);
-            validateAccountControl(request);
-            accountManagementClient.freeze(request.accountType, request.accountNo, request.freezeType, request.reason);
-            auditRepository.log(admin, "FREEZE_ACCOUNT", request.accountType, request.accountNo, request.freezeType + " " + request.reason);
-            sendJson(exchange, 200, ApiResponse.ok(Map.of("accountNo", request.accountNo, "frozen", true)));
-            return;
-        }
-
-        if ("POST".equals(method) && "/api/admin/accounts/unfreeze".equals(path)) {
-            AccountControlRequest request = JsonUtil.read(exchange.getRequestBody(), AccountControlRequest.class);
-            validateAccountControl(request);
-            accountManagementClient.unfreeze(request.accountType, request.accountNo, request.freezeType, request.reason);
-            auditRepository.log(admin, "UNFREEZE_ACCOUNT", request.accountType, request.accountNo, request.freezeType + " " + request.reason);
-            sendJson(exchange, 200, ApiResponse.ok(Map.of("accountNo", request.accountNo, "frozen", false)));
-            return;
-        }
 
         sendJson(exchange, 404, ApiResponse.fail("接口不存在"));
     }
@@ -358,20 +299,15 @@ public class AdminHandler extends BaseHandler {
     }
 
     private void requireSuperAdmin(Admin admin) {
-        if (!"SUPER_ADMIN".equals(admin.role())) {
-            throw new SecurityException("需要超级管理员权限");
-        }
+        if (!"SUPER_ADMIN".equals(admin.role())) throw new SecurityException("需要超级管理员权限");
     }
 
+
     private void validateAccountControl(AccountControlRequest request) {
-        if (!"FUND".equals(request.accountType) && !"SECURITY".equals(request.accountType)) {
+        if (!"FUND".equals(request.accountType) && !"SECURITY".equals(request.accountType))
             throw new IllegalArgumentException("accountType 只能是 FUND 或 SECURITY");
-        }
-        if (request.accountNo == null || request.accountNo.isBlank()) {
-            throw new IllegalArgumentException("账户号不能为空");
-        }
-        if (!"LOSS".equals(request.freezeType) && !"VIOLATION".equals(request.freezeType)) {
+        if (request.accountNo == null || request.accountNo.isBlank()) throw new IllegalArgumentException("账户号不能为空");
+        if (!"LOSS".equals(request.freezeType) && !"VIOLATION".equals(request.freezeType))
             throw new IllegalArgumentException("freezeType 只能是 LOSS 或 VIOLATION");
-        }
     }
 }
