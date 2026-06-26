@@ -37,12 +37,29 @@ public class AccountManagementClient {
         operate("/api/admin/accounts/unfreeze", accountType, accountNo, freezeType, reason);
     }
 
+    public void freezeInvestor(String idCardNo, String reason) throws IOException, InterruptedException {
+        operateInvestor("/api/admin/investors/freeze", idCardNo, reason);
+    }
+
+    public void unfreezeInvestor(String idCardNo, String reason) throws IOException, InterruptedException {
+        operateInvestor("/api/admin/investors/unfreeze", idCardNo, reason);
+    }
+
     private void operate(String path, String accountType, String accountNo, String freezeType, String reason) throws IOException, InterruptedException {
-        if (!enabled) throw new IllegalStateException("账户系统联调未开启");
+        if (!enabled) throw new IllegalStateException("账户系统联调未开启，请在 config.properties 中设置 account.enabled=true");
         JsonNode response = post(path, Map.of(
                 "account_type", accountType,
                 "account_no", accountNo,
                 "freeze_type", freezeType,
+                "reason", reason == null ? "" : reason
+        ), token());
+        ensureSuccess(response);
+    }
+
+    private void operateInvestor(String path, String idCardNo, String reason) throws IOException, InterruptedException {
+        if (!enabled) throw new IllegalStateException("账户系统联调未开启，请在 config.properties 中设置 account.enabled=true");
+        JsonNode response = post(path, Map.of(
+                "id_number", idCardNo,
                 "reason", reason == null ? "" : reason
         ), token());
         ensureSuccess(response);

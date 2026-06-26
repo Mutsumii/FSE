@@ -1,9 +1,10 @@
 package edu.zju.se.management.service;
 
 import edu.zju.se.management.http.NotFoundException;
-import edu.zju.se.management.model.ReviewRecord;
 import edu.zju.se.management.model.ReviewRequest;
+import edu.zju.se.management.model.ReviewRecord;
 import edu.zju.se.management.model.ReviewResult;
+import edu.zju.se.management.model.Stock;
 import edu.zju.se.management.repository.BlacklistRepository;
 import edu.zju.se.management.repository.ReviewRepository;
 import edu.zju.se.management.repository.StockRepository;
@@ -36,9 +37,7 @@ public class ReviewService {
         normalize(request);
         validateRequired(request);
         Optional<ReviewRecord> existing = reviewRepository.findByOrderId(request.orderId);
-        if (existing.isPresent()) {
-            return toResult(existing.get());
-        }
+        if (existing.isPresent()) return toResult(existing.get());
         ReviewResult result = evaluate(request);
         reviewRepository.save(request, result);
         return result;
@@ -74,9 +73,7 @@ public class ReviewService {
     }
 
     private ReviewResult evaluate(ReviewRequest request) throws Exception {
-        boolean blacklisted = request.idCardNo != null && !request.idCardNo.isBlank()
-                ? blacklistRepository.isBlacklistedByIdCard(request.idCardNo)
-                : blacklistRepository.isBlacklistedByUserName(request.userName);
+        boolean blacklisted = blacklistRepository.isBlacklistedByUserName(request.userName);
         if (blacklisted) {
             return ReviewResult.rejected(request.reviewId, request.orderId, "ACCOUNT_RESTRICTED", "投资者在交易黑名单中");
         }
@@ -84,7 +81,7 @@ public class ReviewService {
                 ? centralTradingClient.stockExists(request.stockCode)
                 : stockRepository.findByCode(request.stockCode).isPresent();
         if (!stockExists) {
-            return ReviewResult.rejected(request.reviewId, request.orderId, "STOCK_RESTRICTED", "股票代码不存在或未授权交易");
+            return ReviewResult.rejected(request.reviewId, request.orderId, "STOCK_RESTRICTED", "股票代码不存在");
         }
         if (request.price.compareTo(BigDecimal.ZERO) <= 0 || request.price.scale() > 2) {
             return ReviewResult.rejected(request.reviewId, request.orderId, "PRICE_ABNORMAL", "委托价格必须大于 0 且最多两位小数");
